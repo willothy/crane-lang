@@ -1,0 +1,11 @@
+[package]
+name = "crane-lex"
+version = "0.0.0"
+edition = "2021"
+authors = ["Will Hopkins <willothyh@gmail.com>"]
+license = "MIT"
+description = "Lexer library for the Crane programming language."
+repository = "https://github.com/willothy/crane-lang"
+readme = "../README.md"
+
+[dependencies]

@@ -1,0 +1,16 @@
+[package]
+name = "crane-lang"
+version = "0.0.0"
+edition = "2021"
+authors = ["Will Hopkins <willothyh@gmail.com>"]
+license = "MIT"
+description = "Binary crate for the Crane compiler, crc."
+repository = "https://github.com/willothy/crane-lang"
+readme = "../README.md"
+
+[[bin]]
+name = "crc"
+path = "src/main.rs"
+
+[dependencies]
+crane-lex = { version = "0.0.0", path = "../crane-lex/" }
