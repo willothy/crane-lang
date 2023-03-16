@@ -1,0 +1,2 @@
+[workspace]
+members = ['cranec', 'crane-ast', 'crane-lex', 'crane-parse', 'crane-macros']
