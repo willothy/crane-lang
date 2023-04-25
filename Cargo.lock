@@ -3,9 +3,12 @@
 version = 3
 
 [[package]]
-name = "crane-lex"
-version = "0.0.0"
+name = "crane-lang"
+version = "0.0.1"
+dependencies = [
+ "crane-lex",
+]
 
 [[package]]
-name = "crc"
-version = "0.1.0"
+name = "crane-lex"
+version = "0.0.1"

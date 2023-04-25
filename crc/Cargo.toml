@@ -1,6 +1,6 @@
 [package]
 name = "crane-lang"
-version = "0.0.0"
+version = "0.0.1"
 edition = "2021"
 authors = ["Will Hopkins <willothyh@gmail.com>"]
 license = "MIT"
@@ -13,4 +13,4 @@ name = "crc"
 path = "src/main.rs"
 
 [dependencies]
-crane-lex = { version = "0.0.0", path = "../crane-lex/" }
+crane-lex = { version = "0.0.1", path = "../crane-lex/" }

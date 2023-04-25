@@ -1,6 +1,6 @@
 [package]
 name = "crane-lex"
-version = "0.0.0"
+version = "0.0.1"
 edition = "2021"
 authors = ["Will Hopkins <willothyh@gmail.com>"]
 license = "MIT"
