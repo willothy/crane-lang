@@ -22,7 +22,7 @@ pub struct SourceFile {
     pub path: PathBuf,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum Keyword {
     Fn,       // fn
     Let,      // let
@@ -35,9 +35,18 @@ pub enum Keyword {
     Break,    // break
     Loop,     // loop
     Continue, // continue
+    Mod,      // mod
+    Struct,
+    Type,
+    Impl,
+    As,
+    Use,
+    Super,
+    Self_,
+    Root, // struct
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum Literal {
     /// 1, -5, 109, etc.
     Int(isize),
@@ -51,7 +60,7 @@ pub enum Literal {
     Bool(bool),
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum Assignment {
     Assign,
     AddAssign,
@@ -64,7 +73,7 @@ pub enum Assignment {
     OrAssign,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum Comparison {
     Equal,
     NotEqual,
@@ -74,14 +83,14 @@ pub enum Comparison {
     GreaterThanOrEqual,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum Logical {
     And,
     Or,
     Not,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum Bitwise {
     BitwiseAnd,
     BitwiseOr,
@@ -91,7 +100,7 @@ pub enum Bitwise {
     ShiftLeft,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum Arithmetic {
     Plus,
     Minus,
@@ -100,7 +109,7 @@ pub enum Arithmetic {
     Mod,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum Punctuation {
     OpenParen,
     CloseParen,
@@ -117,7 +126,13 @@ pub enum Punctuation {
     CloseAngle,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
+pub enum Visibility {
+    Public,
+    Private,
+}
+
+#[derive(Debug, PartialEq, Clone)]
 pub enum Symbol {
     Arithmetic(Arithmetic),
     Bitwise(Bitwise),
@@ -125,15 +140,37 @@ pub enum Symbol {
     Comparison(Comparison),
     Assignment(Assignment),
     Punctuation(Punctuation),
+    Visibility(Visibility),
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum Token {
     // Keywords
     Keyword(Keyword),
     Literal(Literal),
     Symbol(Symbol),
     Ident(String),
+    Visibility(Visibility),
+}
+
+impl Token {
+    pub fn same_kind(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Token::Keyword(l), Token::Keyword(r)) => l == r,
+            (Token::Literal(l), Token::Literal(r)) => match (l, r) {
+                (Literal::Int(_), Literal::Int(_)) => true,
+                (Literal::Float(_), Literal::Float(_)) => true,
+                (Literal::String(_), Literal::String(_)) => true,
+                (Literal::Char(_), Literal::Char(_)) => true,
+                (Literal::Bool(_), Literal::Bool(_)) => true,
+                _ => false,
+            },
+            (Token::Symbol(l), Token::Symbol(r)) => l == r,
+            (Token::Ident(_), Token::Ident(_)) => true,
+            (Token::Visibility(_), Token::Visibility(_)) => true,
+            _ => false,
+        }
+    }
 }
 
 #[derive(Debug, PartialEq)]
@@ -162,6 +199,15 @@ pub fn keyword(s: Span) -> IResult<Span, SpannedToken> {
             tag("break"),
             tag("loop"),
             tag("continue"),
+            tag("mod"),
+            tag("struct"),
+            tag("type"),
+            tag("root"),
+            tag("self"),
+            tag("super"),
+            tag("use"),
+            tag("as"),
+            tag("impl"),
         )),
         |r: Span| {
             SpannedToken::new(
@@ -177,6 +223,15 @@ pub fn keyword(s: Span) -> IResult<Span, SpannedToken> {
                     &"break" => Keyword::Break,
                     &"loop" => Keyword::Loop,
                     &"continue" => Keyword::Continue,
+                    &"mod" => Keyword::Mod,
+                    &"struct" => Keyword::Struct,
+                    &"type" => Keyword::Type,
+                    &"root" => Keyword::Root,
+                    &"self" => Keyword::Self_,
+                    &"super" => Keyword::Super,
+                    &"use" => Keyword::Use,
+                    &"as" => Keyword::As,
+                    &"impl" => Keyword::Impl,
                     _ => unreachable!(),
                 }),
                 r,
@@ -472,12 +527,28 @@ pub fn ident(input: Span) -> IResult<Span, SpannedToken> {
     ));
 }
 
+pub fn visibility(s: Span) -> IResult<Span, SpannedToken> {
+    map(alt((tag("pub"),)), |r: Span| {
+        SpannedToken::new(
+            Token::Visibility(match r.fragment() {
+                &"pub" => Visibility::Public,
+                _ => unreachable!(),
+            }),
+            r,
+        )
+    })(s)
+}
+
 pub fn token(s: Span) -> IResult<Span, SpannedToken> {
     delimited(
         multispace0,
-        alt((keyword, literal, ident, symbol)),
+        alt((keyword, visibility, literal, ident, symbol)),
         multispace0,
     )(s)
+}
+
+pub fn tokenize(s: Span) -> IResult<Span, Vec<SpannedToken>> {
+    many0(token)(s)
 }
 
 #[cfg(test)]

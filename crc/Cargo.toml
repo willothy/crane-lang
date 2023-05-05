@@ -13,4 +13,6 @@ name = "crc"
 path = "src/main.rs"
 
 [dependencies]
+anyhow = "1.0.71"
 crane-lex = { version = "0.0.1", path = "../crane-lex/" }
+crane-parse = { path = "../crane-parse/" }

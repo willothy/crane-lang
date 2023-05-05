@@ -3,6 +3,12 @@
 version = 3
 
 [[package]]
+name = "anyhow"
+version = "1.0.71"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9c7d0618f0e0b7e8ff11427422b64564d5fb0be1940354bfe2e0529b18a9d9b8"
+
+[[package]]
 name = "bytecount"
 version = "0.6.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -12,7 +18,9 @@ checksum = "2c676a478f63e9fa2dd5368a42f28bba0d6c560b775f38583c8bbaa7fcd67c9c"
 name = "crane-lang"
 version = "0.0.1"
 dependencies = [
+ "anyhow",
  "crane-lex",
+ "crane-parse",
 ]
 
 [[package]]
@@ -21,6 +29,15 @@ version = "0.0.1"
 dependencies = [
  "nom",
  "nom_locate",
+]
+
+[[package]]
+name = "crane-parse"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "crane-lex",
+ "slotmap",
 ]
 
 [[package]]
@@ -55,3 +72,18 @@ dependencies = [
  "memchr",
  "nom",
 ]
+
+[[package]]
+name = "slotmap"
+version = "1.0.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e1e08e261d0e8f5c43123b7adf3e4ca1690d655377ac93a03b2c9d3e98de1342"
+dependencies = [
+ "version_check",
+]
+
+[[package]]
+name = "version_check"
+version = "0.9.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "49874b5167b65d7193b8aba1567f5c7d93d001cafc34600cee003eda787e483f"
