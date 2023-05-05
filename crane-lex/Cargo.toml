@@ -9,3 +9,5 @@ repository = "https://github.com/willothy/crane-lang"
 readme = "../README.md"
 
 [dependencies]
+nom = "7.1.3"
+nom_locate = "4.1.0"
