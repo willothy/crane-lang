@@ -4,7 +4,7 @@ use nom::{
     branch::alt,
     bytes::complete::tag,
     character::{
-        complete::{anychar, digit0, digit1, hex_digit1, multispace0},
+        complete::{anychar, digit0, digit1, hex_digit1, multispace0, one_of},
         is_alphabetic,
         streaming::oct_digit1,
     },
@@ -124,12 +124,22 @@ pub enum Punctuation {
     Question,
     OpenAngle,
     CloseAngle,
+    RightArrow,
 }
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum Visibility {
     Public,
     Private,
+}
+
+impl std::fmt::Display for Visibility {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Visibility::Public => write!(f, "pub "),
+            Visibility::Private => write!(f, ""),
+        }
+    }
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -151,6 +161,7 @@ pub enum Token {
     Symbol(Symbol),
     Ident(String),
     Visibility(Visibility),
+    Newline,
 }
 
 impl Token {
@@ -490,6 +501,7 @@ pub fn punctuation(s: Span) -> IResult<Span, SpannedToken> {
                     &";" => Punctuation::Semicolon,
                     &"::" => Punctuation::DoubleColon,
                     &":" => Punctuation::Colon,
+                    &"->" => Punctuation::RightArrow,
                     _ => unreachable!(),
                 })),
                 r,
@@ -500,13 +512,13 @@ pub fn punctuation(s: Span) -> IResult<Span, SpannedToken> {
 
 pub fn symbol(s: Span) -> IResult<Span, SpannedToken> {
     let (rest, sym) = alt((
+        punctuation,
         comparison,
         logical,
         complex_assignment,
         bitwise,
         arithmetic,
         simple_assignment,
-        punctuation,
     ))(s)?;
 
     Ok((rest, sym))
@@ -539,11 +551,16 @@ pub fn visibility(s: Span) -> IResult<Span, SpannedToken> {
     })(s)
 }
 
+pub fn newline(s: Span) -> IResult<Span, SpannedToken> {
+    alt((map(tag("\n"), |r: Span| {
+        SpannedToken::new(Token::Newline, r)
+    }),))(s)
+}
 pub fn token(s: Span) -> IResult<Span, SpannedToken> {
     delimited(
-        multispace0,
-        alt((keyword, visibility, literal, ident, symbol)),
-        multispace0,
+        many0(one_of(" \t\r")),
+        alt((keyword, visibility, literal, ident, symbol, newline)),
+        many0(one_of(" \t\r")),
     )(s)
 }
 

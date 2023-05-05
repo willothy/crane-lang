@@ -1,8 +1,8 @@
-use std::{collections::HashMap, path::Iter};
+use std::{collections::HashMap, fmt::Display, path::Iter};
 
 use anyhow::Result;
 use crane_lex as lex;
-use lex::{Keyword, Literal, SpannedToken, Token, Visibility};
+use lex::{Keyword, Literal, Punctuation, SpannedToken, Token, Visibility};
 use slotmap::{new_key_type, SlotMap};
 
 new_key_type! {
@@ -32,22 +32,114 @@ pub struct Package {
 
 impl Package {
     pub fn new() -> Self {
-        let mut units = SlotMap::with_key();
-        let root = units.insert(Unit {
-            parent: None,
-            name: String::from("root"),
-            ast_nodes: SlotMap::with_key(),
-            members: HashMap::new(),
-        });
-        Self { units, root }
+        Self {
+            units: SlotMap::with_key(),
+            root: UnitId::default(),
+        }
     }
 
     pub fn get_unit(&self, id: UnitId) -> Option<&Unit> {
         self.units.get(id)
     }
+
+    fn get_parent_name(&self, unit_id: UnitId) -> Option<(UnitId, String)> {
+        let unit = self.units.get(unit_id).unwrap();
+        if let Some(parent) = unit.parent {
+            return self.units.get(parent).map(|u| (parent, u.name.clone()));
+        }
+        None
+    }
+
+    fn canonicalize_path(&self, unit_id: UnitId, path: ItemPath) -> ItemPath {
+        match path {
+            ItemPath::Name(name) => {
+                let mut new_path = vec![name];
+                let mut id = unit_id;
+                while let Some((new_id, parent)) = self.get_parent_name(id) {
+                    id = new_id;
+                    new_path.push(parent);
+                }
+                new_path.reverse();
+                ItemPath::Absolute(new_path)
+            }
+            path => path,
+        }
+    }
+
+    pub fn dbg_print(&self) {
+        for (id, unit) in self.units.iter() {
+            println!(
+                "Unit {} {{\n",
+                self.canonicalize_path(id, ItemPath::Name(unit.name.clone()))
+            );
+            for (name, node) in unit.members.iter() {
+                let node = unit.ast_nodes.get(*node).unwrap();
+                println!(
+                    "{}\n",
+                    match node {
+                        ASTNode::Item(item) => match item {
+                            Item::Submodule { vis, name, id } => {
+                                let unit = &self.units.get(*id).unwrap().name;
+                                format!(
+                                    "  {}mod {} (Unit {})",
+                                    Visibility::Public,
+                                    name,
+                                    // unit,
+                                    self.canonicalize_path(*id, name.clone())
+                                )
+                            }
+                            Item::FunctionDef {
+                                vis,
+                                name,
+                                params,
+                                ret_ty,
+                                body,
+                            } => format!(
+                                "  {}fn {}({}) -> {} {{ ... }}",
+                                vis,
+                                name,
+                                params
+                                    .iter()
+                                    .map(|(name, ty)| format!("  {}: {}", name, ty))
+                                    .collect::<Vec<_>>()
+                                    .join(", "),
+                                ret_ty.clone().unwrap_or(ItemPath::Name("void".to_owned()))
+                            ),
+                            Item::FunctionDecl {
+                                vis,
+                                name,
+                                args,
+                                ret_ty,
+                            } => todo!(),
+                            Item::StructDef { vis, name, fields } => format!(
+                                "  {}struct {} {{\n{}\n  }}",
+                                vis,
+                                name,
+                                fields
+                                    .iter()
+                                    .map(|v| format!("    {}: {}", v.0, v.1))
+                                    .collect::<Vec<_>>()
+                                    .join(",\n"),
+                            ),
+                            Item::TypeDef { vis, name, ty } =>
+                                format!("  {}type {} = {}", vis, name, ty),
+                            Item::ConstDef {
+                                vis,
+                                name,
+                                ty,
+                                value,
+                            } => todo!(),
+                        },
+                        _ => "???".to_owned(),
+                    }
+                );
+            }
+            println!("}}\n");
+        }
+    }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum ItemPath {
     /// Starting with root::
     Absolute(Vec<String>),
@@ -57,6 +149,40 @@ pub enum ItemPath {
     External(Vec<String>),
     /// Single identifier (name expected to be in scope)
     Name(String),
+}
+
+impl Display for ItemPath {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ItemPath::Absolute(path) => {
+                for (i, part) in path.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, "::")?;
+                    }
+                    write!(f, "{}", part)?;
+                }
+            }
+            ItemPath::Relative(path) => {
+                for (i, part) in path.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, "::")?;
+                    }
+                    write!(f, "{}", part)?;
+                }
+            }
+            ItemPath::External(path) => {
+                write!(f, "::")?;
+                for (i, part) in path.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, "::")?;
+                    }
+                    write!(f, "{}", part)?;
+                }
+            }
+            ItemPath::Name(name) => write!(f, "{}", name)?,
+        }
+        Ok(())
+    }
 }
 
 /// Item path starting with root:: or :: (external)
@@ -146,15 +272,15 @@ pub enum Item {
     FunctionDef {
         vis: Visibility,
         name: ItemPath,
-        args: Vec<(String, ItemPath)>,
-        ret_ty: ItemPath,
+        params: Vec<(String, ItemPath)>,
+        ret_ty: Option<ItemPath>,
         body: Vec<NodeId>,
     },
     FunctionDecl {
         vis: Visibility,
         name: ItemPath,
         args: Vec<(String, ItemPath)>,
-        ret: ItemPath,
+        ret_ty: Option<ItemPath>,
     },
     StructDef {
         vis: Visibility,
@@ -269,7 +395,7 @@ pub enum Stmt {
     Let {
         name: String,
         ty: ItemPath,
-        value: NodeId,
+        value: Option<NodeId>,
     },
     Assign {
         lhs: NodeId,
@@ -322,6 +448,7 @@ impl<'a> Parser<'a> {
     }
 
     pub fn expect(&mut self, token: Token) -> Result<Token> {
+        self.skip_whitespace();
         if let Some((true, tok)) = self
             .current()
             .map(|t| (t.kind.same_kind(&token), t.kind.clone()))
@@ -329,7 +456,11 @@ impl<'a> Parser<'a> {
             self.pos += 1;
             Ok(tok)
         } else {
-            Err(anyhow::anyhow!("expected {:?}", token))
+            Err(anyhow::anyhow!(
+                "expected {:?}, found {:?}",
+                token,
+                self.current().map(|t| &t.kind)
+            ))
         }
     }
 
@@ -341,12 +472,14 @@ impl<'a> Parser<'a> {
             ast_nodes: SlotMap::with_key(),
         };
         let unit_id = self.package.units.insert(unit);
+        self.skip_whitespace();
         self.parse_unit_body(unit_id)?;
         Ok(unit_id)
     }
 
     pub fn parse_unit_body(&mut self, unit_id: UnitId) -> Result<()> {
         let mut public = false;
+        self.skip_whitespace();
         while let Some(current) = self.advance() {
             match &current.kind {
                 // Public item
@@ -362,8 +495,9 @@ impl<'a> Parser<'a> {
                         Keyword::Mod => self.parse_submodule(unit_id, pb)?,
                         Keyword::Struct => self.parse_struct_def(unit_id, pb)?,
                         Keyword::Type => self.parse_type_alias(unit_id, pb)?,
-                        _ => panic!(),
+                        illegal => panic!("illegal kw {:?}", illegal),
                     }
+                    self.skip_whitespace();
                 }
                 Token::Visibility(Visibility::Public) if public == true => {
                     unreachable!(
@@ -373,15 +507,19 @@ impl<'a> Parser<'a> {
                 Token::Visibility(Visibility::Private) => {
                     unreachable!("A token should never actually have type Visibility::Private")
                 }
-                _ => {
+                Token::Newline => {}
+                illegal => {
+                    println!("illegal token {:?}", illegal);
                     // self.parse_priv_unit_body(unit_id)?;
                 }
             }
+            self.skip_whitespace();
         }
         Ok(())
     }
 
     fn parse_type_alias(&mut self, unit_id: UnitId, public: bool) -> Result<()> {
+        self.skip_whitespace();
         let Some(Token::Ident(name)) = self.advance().map(|t| t.kind.clone()) else {
             return Err(anyhow::anyhow!("expected identifier"));
         };
@@ -411,35 +549,8 @@ impl<'a> Parser<'a> {
         Ok(())
     }
 
-    fn get_parent_name(&self, unit_id: UnitId) -> Option<(UnitId, String)> {
-        let unit = self.package.units.get(unit_id).unwrap();
-        if let Some(parent) = unit.parent {
-            return self
-                .package
-                .units
-                .get(parent)
-                .map(|u| (parent, u.name.clone()));
-        }
-        None
-    }
-
-    fn canonicalize_path(&self, unit_id: UnitId, path: ItemPath) -> ItemPath {
-        match path {
-            ItemPath::Name(name) => {
-                let mut new_path = vec![name];
-                let mut id = unit_id;
-                while let Some((new_id, parent)) = self.get_parent_name(id) {
-                    id = new_id;
-                    new_path.push(parent);
-                }
-                new_path.reverse();
-                ItemPath::Absolute(new_path)
-            }
-            path => path,
-        }
-    }
-
     fn parse_path(&mut self) -> Result<ItemPath> {
+        self.skip_whitespace();
         let mut path = Vec::new();
 
         let mut external = false;
@@ -450,6 +561,7 @@ impl<'a> Parser<'a> {
             self.advance();
         }
 
+        self.skip_whitespace();
         let root = self
             .advance()
             .ok_or(anyhow::anyhow!("expected ident or self:: or root::"))?
@@ -462,6 +574,7 @@ impl<'a> Parser<'a> {
             if let Token::Ident(name) = self.expect(Token::Ident("".into()))? {
                 path.push(name);
             }
+            self.skip_whitespace();
         }
         Ok(match root {
             Token::Keyword(Keyword::Self_) => ItemPath::Relative(path),
@@ -483,17 +596,23 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_struct_def(&mut self, unit_id: UnitId, public: bool) -> Result<()> {
+        self.skip_whitespace();
         let Some(Token::Ident(name)) = self.advance().map(|t| t.kind.clone()) else {
             return Err(anyhow::anyhow!("expected identifier"));
         };
 
+        self.skip_whitespace();
         self.expect(Token::Symbol(lex::Symbol::Punctuation(
             lex::Punctuation::OpenBrace,
         )))?;
 
         let mut fields = Vec::new();
 
-        while let Some(Token::Ident(name)) = self.advance().map(|t| t.kind.clone()) {
+        loop {
+            self.skip_whitespace();
+            let Ok(name) = self.expect_ident() else {
+                break;
+            };
             self.expect(Token::Symbol(lex::Symbol::Punctuation(
                 lex::Punctuation::Colon,
             )))?;
@@ -504,12 +623,12 @@ impl<'a> Parser<'a> {
             ))) {
                 continue;
             } else {
-                self.expect(Token::Symbol(lex::Symbol::Punctuation(
-                    lex::Punctuation::CloseBrace,
-                )))?;
                 break;
             }
         }
+        self.expect(Token::Symbol(lex::Symbol::Punctuation(
+            lex::Punctuation::CloseBrace,
+        )))?;
 
         let unit: &mut Unit = self
             .package
@@ -523,6 +642,7 @@ impl<'a> Parser<'a> {
             fields,
         }));
         unit.members.insert(name, id);
+        self.skip_whitespace();
 
         Ok(())
     }
@@ -536,6 +656,7 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_submodule(&mut self, unit_id: UnitId, public: bool) -> Result<()> {
+        self.skip_whitespace();
         let Some(Token::Ident(name)) = self.advance().map(|t| t.kind.clone()) else {
             return Err(anyhow::anyhow!("expected identifier"));
         };
@@ -555,7 +676,12 @@ impl<'a> Parser<'a> {
         }));
         parent_unit.members.insert(name, node);
 
+        self.expect(Token::Symbol(lex::Symbol::Punctuation(
+            lex::Punctuation::OpenBrace,
+        )))?;
+
         let mut public = false;
+        self.skip_whitespace();
         while let Some(current) = match self.advance() {
             Some(e)
                 if e.kind.same_kind(&Token::Symbol(lex::Symbol::Punctuation(
@@ -592,16 +718,225 @@ impl<'a> Parser<'a> {
                 Token::Visibility(Visibility::Private) => {
                     unreachable!("A token should never actually have type Visibility::Private")
                 }
-                _ => {
-                    // self.parse_priv_unit_body(unit_id)?;
+                igl => {
+                    unreachable!("{:?} - {:?}", igl, current.span)
                 }
             }
         }
 
+        self.skip_whitespace();
         Ok(())
     }
 
-    fn parse_fn(&self, unit_id: UnitId, public: bool) -> Result<()> {
+    fn expect_ident(&mut self) -> Result<String> {
+        self.skip_whitespace();
+        let Some(Token::Ident(name)) = self.advance().map(|t| t.kind.clone()) else {
+            return Err(anyhow::anyhow!("expected identifier"));
+        };
+        self.skip_whitespace();
+        Ok(name)
+    }
+
+    fn parse_fn(&mut self, unit_id: UnitId, public: bool) -> Result<()> {
+        let vis = Self::vis(public);
+        self.skip_whitespace();
+        let Some(Token::Ident(name)) = self.advance().map(|t| t.kind.clone()) else {
+            return Err(anyhow::anyhow!("expected identifier"));
+        };
+
+        self.expect(Token::Symbol(lex::Symbol::Punctuation(
+            lex::Punctuation::OpenParen,
+        )))?;
+
+        let mut params = Vec::new();
+        loop {
+            if let Ok(_) = self.expect(Token::Symbol(lex::Symbol::Punctuation(
+                lex::Punctuation::CloseParen,
+            ))) {
+                break;
+            }
+
+            self.skip_whitespace();
+            let Some(Token::Ident(name)) = self.advance().map(|t| t.kind.clone()) else {
+                return Err(anyhow::anyhow!("expected identifier"));
+            };
+
+            self.expect(Token::Symbol(lex::Symbol::Punctuation(
+                lex::Punctuation::Colon,
+            )))?;
+
+            let ty = self.parse_path()?;
+
+            params.push((name, ty));
+
+            self.skip_whitespace();
+            if let Ok(_) = self.expect(Token::Symbol(lex::Symbol::Punctuation(
+                lex::Punctuation::Comma,
+            ))) {
+                continue;
+            } else {
+                self.expect(Token::Symbol(lex::Symbol::Punctuation(
+                    lex::Punctuation::CloseParen,
+                )))?;
+                break;
+            }
+        }
+
+        self.skip_whitespace();
+        let ret_ty = if let Some(Token::Symbol(lex::Symbol::Punctuation(Punctuation::RightArrow))) =
+            self.peek().map(|t| &t.kind)
+        {
+            self.skip_whitespace();
+            self.advance();
+            Some(self.parse_path()?)
+        } else {
+            None
+        };
+        self.skip_whitespace();
+        self.expect(Token::Symbol(lex::Symbol::Punctuation(
+            lex::Punctuation::OpenBrace,
+        )))?;
+        self.skip_whitespace();
+        let body = self.parse_block(unit_id)?;
+        let unit: &mut Unit = self
+            .package
+            .units
+            .get_mut(unit_id)
+            .ok_or(anyhow::anyhow!("unit not found"))?;
+        let id = unit.ast_nodes.insert(ASTNode::Item(Item::FunctionDef {
+            vis,
+            name: ItemPath::Name(name.clone()),
+            params,
+            ret_ty,
+            body,
+        }));
+        unit.members.insert(name, id);
+        self.skip_whitespace();
+
+        Ok(())
+    }
+
+    fn parse_block(&mut self, unit_id: UnitId) -> Result<Vec<NodeId>> {
+        let mut nodes = Vec::new();
+        loop {
+            if let Some(Token::Symbol(lex::Symbol::Punctuation(lex::Punctuation::CloseBrace))) =
+                self.peek().map(|t| &t.kind)
+            {
+                break;
+            }
+
+            nodes.push(self.parse_stmt(unit_id)?);
+        }
+        Ok(nodes)
+    }
+
+    fn parse_stmt(&mut self, unit_id: UnitId) -> Result<NodeId> {
+        match self.peek().map(|t| &t.kind).unwrap() {
+            Token::Keyword(Keyword::Let) => self.parse_let_stmt(unit_id),
+            Token::Keyword(Keyword::Return) => self.parse_return_stmt(unit_id),
+            Token::Keyword(Keyword::Break) => self.parse_break_stmt(unit_id),
+            Token::Keyword(Keyword::Continue) => self.parse_continue_stmt(unit_id),
+            _ => self.parse_expr_stmt(unit_id),
+        }
+    }
+
+    fn parse_expr_stmt(&mut self, unit_id: UnitId) -> Result<NodeId> {
+        self.parse_expr(unit_id)
+    }
+
+    fn parse_let_stmt(&mut self, unit_id: UnitId) -> Result<NodeId> {
+        self.expect(Token::Keyword(Keyword::Let))?;
+        let name = self.expect_ident()?;
+        self.expect(Token::Symbol(lex::Symbol::Punctuation(
+            lex::Punctuation::Colon,
+        )))?;
+
+        let ty = self.parse_path()?;
+        let init = if let Some(Token::Symbol(lex::Symbol::Assignment(lex::Assignment::Assign))) =
+            self.peek().map(|t| &t.kind)
+        {
+            self.advance();
+            Some(self.parse_expr(unit_id)?)
+        } else {
+            None
+        };
+        let unit: &mut Unit = self
+            .package
+            .units
+            .get_mut(unit_id)
+            .ok_or(anyhow::anyhow!("unit not found"))?;
+        let id = unit.ast_nodes.insert(ASTNode::Stmt(Stmt::Let {
+            name,
+            ty,
+            value: init,
+        }));
+        Ok(id)
+    }
+
+    fn parse_return_stmt(&mut self, unit_id: UnitId) -> Result<NodeId> {
+        self.expect(Token::Keyword(Keyword::Return))?;
+        if let Some(Token::Newline) = self.peek().map(|t| &t.kind) {
+            self.advance();
+            return Ok(self
+                .package
+                .units
+                .get_mut(unit_id)
+                .ok_or(anyhow::anyhow!("unit not found"))?
+                .ast_nodes
+                .insert(ASTNode::Stmt(Stmt::Return { value: None })));
+        } else {
+            let value = self.parse_expr(unit_id)?;
+            self.expect(Token::Newline)?;
+            return Ok(self
+                .package
+                .units
+                .get_mut(unit_id)
+                .ok_or(anyhow::anyhow!("unit not found"))?
+                .ast_nodes
+                .insert(ASTNode::Stmt(Stmt::Return { value: Some(value) })));
+        }
+    }
+
+    fn skip_whitespace(&mut self) {
+        while let Some(Token::Newline) = self.current().map(|t| &t.kind) {
+            self.advance();
+        }
+    }
+
+    fn parse_break_stmt(&mut self, unit_id: UnitId) -> Result<NodeId> {
+        self.expect(Token::Keyword(Keyword::Break))?;
+        if let Some(Token::Newline) = self.peek().map(|t| &t.kind) {
+            self.advance();
+            return Ok(self
+                .package
+                .units
+                .get_mut(unit_id)
+                .ok_or(anyhow::anyhow!("unit not found"))?
+                .ast_nodes
+                .insert(ASTNode::Stmt(Stmt::Break { value: None })));
+        }
+        let expr = self.parse_expr(unit_id)?;
+        Ok(self
+            .package
+            .units
+            .get_mut(unit_id)
+            .ok_or(anyhow::anyhow!("unit not found"))?
+            .ast_nodes
+            .insert(ASTNode::Stmt(Stmt::Break { value: Some(expr) })))
+    }
+
+    fn parse_continue_stmt(&mut self, unit_id: UnitId) -> Result<NodeId> {
+        self.expect(Token::Keyword(Keyword::Continue))?;
+        Ok(self
+            .package
+            .units
+            .get_mut(unit_id)
+            .ok_or(anyhow::anyhow!("unit not found"))?
+            .ast_nodes
+            .insert(ASTNode::Stmt(Stmt::Continue)))
+    }
+
+    fn parse_expr(&mut self, unit_id: UnitId) -> Result<NodeId> {
         todo!()
     }
 }
