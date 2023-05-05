@@ -6,12 +6,6 @@ use parse::Package;
 fn main() -> anyhow::Result<()> {
     let test = Span::new(
         "
-struct Test {
-    a: i32,
-    b: ::test::Type
-}
-
-pub type Alias = self::Test
 
 mod test {
     struct Type {
@@ -19,7 +13,7 @@ mod test {
         b: i32
     }
 }
-                         ",
+",
     );
     let (rest, tokens) = lex::tokenize(test)?;
     tokens.iter().for_each(|t| println!("{:?}", t.kind));
