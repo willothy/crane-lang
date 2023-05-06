@@ -5,24 +5,7 @@ use crane_parse as parse;
 use parse::Package;
 
 fn main() -> anyhow::Result<()> {
-    let test = "
-struct Test {
-    a: i32,
-    b: ::test::Type
-}
-
-pub type Alias = self::Test
-
-fn test_func() {
-
-}
-
-mod test {
-    struct Type {
-        a: i32,
-        b: i32
-    }
-}";
+    let test = include_str!("../../test.cr");
     let lexer = lex::Lexer::new();
     let (tokens, errors) = lexer.lex_str(test)?;
 
@@ -39,7 +22,10 @@ mod test {
         return Ok(());
     };
 
-    println!("{:#?}", tokens);
+    println!(
+        "{:#?}",
+        tokens.iter().rev().take(5).rev().collect::<Vec<_>>()
+    );
 
     let mut package = Package::new();
 

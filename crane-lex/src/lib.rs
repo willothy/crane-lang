@@ -228,6 +228,55 @@ impl Token {
             _ => false,
         }
     }
+
+    pub fn op_type(&self) -> Option<OperatorType> {
+        self.try_into().ok()
+    }
+}
+
+impl TryFrom<&Token> for OperatorType {
+    type Error = anyhow::Error;
+
+    fn try_from(value: &Token) -> Result<Self, Self::Error> {
+        match value {
+            Token::Symbol(Symbol::Assignment(_)) => Ok(OperatorType::Assignment),
+            Token::Symbol(Symbol::Arithmetic(Arithmetic::Plus | Arithmetic::Minus)) => {
+                Ok(OperatorType::Additive)
+            }
+            Token::Symbol(Symbol::Arithmetic(
+                Arithmetic::Times | Arithmetic::Divide | Arithmetic::Mod,
+            )) => Ok(OperatorType::Multiplicative),
+            Token::Symbol(Symbol::Comparison(Comparison::Equal | Comparison::NotEqual)) => {
+                Ok(OperatorType::Equality)
+            }
+            Token::Symbol(Symbol::Comparison(
+                Comparison::LessThan
+                | Comparison::GreaterThan
+                | Comparison::LessThanOrEqual
+                | Comparison::GreaterThanOrEqual,
+            )) => Ok(OperatorType::Relational),
+            Token::Symbol(Symbol::Logical(Logical::And)) => Ok(OperatorType::LogicalAnd),
+            Token::Symbol(Symbol::Logical(Logical::Or)) => Ok(OperatorType::LogicalOr),
+            Token::Symbol(Symbol::Logical(Logical::Not)) => Ok(OperatorType::LogicalNot),
+            Token::Symbol(Symbol::Bitwise(_)) => Ok(OperatorType::Bitwise),
+            Token::Keyword(Keyword::As) => Ok(OperatorType::Cast),
+            igl => Err(anyhow::anyhow!("Token is not an operator: {:?}", igl)),
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Clone, Copy)]
+pub enum OperatorType {
+    Assignment,
+    Additive,
+    Multiplicative,
+    LogicalAnd,
+    LogicalOr,
+    LogicalNot,
+    Equality,
+    Relational,
+    Bitwise,
+    Cast,
 }
 
 impl TryFrom<&str> for Keyword {
@@ -376,7 +425,6 @@ impl Lexer {
         anyhow::Error,
     > {
         let path = path.canonicalize().map_err(|e| anyhow::anyhow!("{}", e))?;
-        let path = Arc::new(path);
         let mut files = self
             .files
             .write()
@@ -398,15 +446,6 @@ impl Lexer {
         ),
         anyhow::Error,
     > {
-        // let mut files = self
-        //     .files
-        //     .write()
-        //     .map_err(|_| anyhow::anyhow!("Failed to lock file cache"))?;
-        // let path = path.canonicalize().map_err(|e| anyhow::anyhow!("{}", e))?;
-        // let path = Arc::new(path);
-        // let source = files
-        //     .fetch(path.as_ref())
-        //     .map_err(|e| anyhow::anyhow!("{:?}", e))?;
         let source_id = Arc::new(source_id.to_owned());
 
         let kw = choice((
