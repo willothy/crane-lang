@@ -1,8 +1,9 @@
-use std::{collections::HashMap, fmt::Display, path::Iter};
+use std::{collections::HashMap, fmt::Display};
 
 use anyhow::Result;
+use ariadne::{Report, ReportBuilder};
 use crane_lex as lex;
-use lex::{Keyword, Literal, Punctuation, SpannedToken, Token, Visibility};
+use lex::{Keyword, Literal, Punctuation, Span, Spanned, Token, Visibility};
 use slotmap::{new_key_type, SlotMap};
 
 new_key_type! {
@@ -36,6 +37,10 @@ impl Package {
             units: SlotMap::with_key(),
             root: UnitId::default(),
         }
+    }
+
+    pub fn name(&self) -> &str {
+        &self.units.get(self.root).unwrap().name
     }
 
     pub fn get_unit(&self, id: UnitId) -> Option<&Unit> {
@@ -72,19 +77,17 @@ impl Package {
                 "Unit {} {{\n",
                 self.canonicalize_path(id, ItemPath::Name(unit.name.clone()))
             );
-            for (name, node) in unit.members.iter() {
+            for (_name, node) in unit.members.iter() {
                 let node = unit.ast_nodes.get(*node).unwrap();
                 println!(
                     "{}\n",
                     match node {
                         ASTNode::Item(item) => match item {
                             Item::Submodule { vis, name, id } => {
-                                let unit = &self.units.get(*id).unwrap().name;
                                 format!(
                                     "  {}mod {} (Unit {})",
-                                    Visibility::Public,
+                                    vis,
                                     name,
-                                    // unit,
                                     self.canonicalize_path(*id, name.clone())
                                 )
                             }
@@ -93,7 +96,7 @@ impl Package {
                                 name,
                                 params,
                                 ret_ty,
-                                body,
+                                body: _,
                             } => format!(
                                 "  {}fn {}({}) -> {} {{ ... }}",
                                 vis,
@@ -110,7 +113,16 @@ impl Package {
                                 name,
                                 args,
                                 ret_ty,
-                            } => todo!(),
+                            } => format!(
+                                "  {}extern fn {}({}) -> {}",
+                                vis,
+                                name,
+                                args.iter()
+                                    .map(|(name, ty)| format!("  {}: {}", name, ty))
+                                    .collect::<Vec<_>>()
+                                    .join(", "),
+                                ret_ty.clone().unwrap_or(ItemPath::Name("void".to_owned()))
+                            ),
                             Item::StructDef { vis, name, fields } => format!(
                                 "  {}struct {} {{\n{}\n  }}",
                                 vis,
@@ -127,8 +139,8 @@ impl Package {
                                 vis,
                                 name,
                                 ty,
-                                value,
-                            } => todo!(),
+                                value: _,
+                            } => format!("  {}const {}: {}", vis, name, ty),
                         },
                         _ => "???".to_owned(),
                     }
@@ -419,13 +431,13 @@ pub enum ASTNode {
 }
 
 pub struct Parser<'a> {
-    tokens: Vec<SpannedToken<'a>>,
+    tokens: Vec<Spanned<Token>>,
     pos: usize,
     package: &'a mut Package,
 }
 
 impl<'a> Parser<'a> {
-    pub fn new(tokens: Vec<SpannedToken<'a>>, package: &'a mut Package) -> Self {
+    pub fn new(tokens: Vec<Spanned<Token>>, package: &'a mut Package) -> Self {
         Self {
             tokens,
             pos: 0,
@@ -433,17 +445,17 @@ impl<'a> Parser<'a> {
         }
     }
 
-    pub fn current(&self) -> Option<&SpannedToken<'a>> {
+    pub fn current(&self) -> Option<&Spanned<Token>> {
         self.tokens.get(self.pos)
     }
 
-    pub fn advance(&mut self) -> Option<&SpannedToken<'a>> {
+    pub fn advance(&mut self) -> Option<&Spanned<Token>> {
         let token = self.tokens.get(self.pos);
         self.pos += 1;
         token
     }
 
-    pub fn peek(&self) -> Option<&SpannedToken<'a>> {
+    pub fn peek(&self) -> Option<&Spanned<Token>> {
         self.tokens.get(self.pos + 1)
     }
 
@@ -451,7 +463,7 @@ impl<'a> Parser<'a> {
         self.skip_whitespace();
         if let Some((true, tok)) = self
             .current()
-            .map(|t| (t.kind.same_kind(&token), t.kind.clone()))
+            .map(|t| (t.value.same_kind(&token), t.value.clone()))
         {
             self.pos += 1;
             Ok(tok)
@@ -459,7 +471,7 @@ impl<'a> Parser<'a> {
             Err(anyhow::anyhow!(
                 "expected {:?}, found {:?}",
                 token,
-                self.current().map(|t| &t.kind)
+                self.current().map(|t| &t.value)
             ))
         }
     }
@@ -477,11 +489,11 @@ impl<'a> Parser<'a> {
         Ok(unit_id)
     }
 
-    pub fn parse_unit_body(&mut self, unit_id: UnitId) -> Result<()> {
+    fn parse_unit_body(&mut self, unit_id: UnitId) -> Result<()> {
         let mut public = false;
         self.skip_whitespace();
         while let Some(current) = self.advance() {
-            match &current.kind {
+            match &current.value {
                 // Public item
                 Token::Visibility(Visibility::Public) if public == false => public = true,
                 // Anything else is
@@ -495,7 +507,7 @@ impl<'a> Parser<'a> {
                         Keyword::Mod => self.parse_submodule(unit_id, pb)?,
                         Keyword::Struct => self.parse_struct_def(unit_id, pb)?,
                         Keyword::Type => self.parse_type_alias(unit_id, pb)?,
-                        illegal => panic!("illegal kw {:?}", illegal),
+                        illegal => return Err(anyhow::anyhow!("illegal kw {:?}", illegal)),
                     }
                     self.skip_whitespace();
                 }
@@ -508,10 +520,7 @@ impl<'a> Parser<'a> {
                     unreachable!("A token should never actually have type Visibility::Private")
                 }
                 Token::Newline => {}
-                illegal => {
-                    println!("illegal token {:?}", illegal);
-                    // self.parse_priv_unit_body(unit_id)?;
-                }
+                illegal => return Err(anyhow::anyhow!("Invalid token {:?} in unit body", illegal)),
             }
             self.skip_whitespace();
         }
@@ -520,7 +529,7 @@ impl<'a> Parser<'a> {
 
     fn parse_type_alias(&mut self, unit_id: UnitId, public: bool) -> Result<()> {
         self.skip_whitespace();
-        let Some(Token::Ident(name)) = self.advance().map(|t| t.kind.clone()) else {
+        let Some(Token::Ident(name)) = self.advance().map(|t| t.value.clone()) else {
             return Err(anyhow::anyhow!("expected identifier"));
         };
         self.expect(Token::Symbol(lex::Symbol::Assignment(
@@ -555,7 +564,7 @@ impl<'a> Parser<'a> {
 
         let mut external = false;
         if let Some(Token::Symbol(lex::Symbol::Punctuation(lex::Punctuation::DoubleColon))) =
-            self.current().map(|t| &t.kind)
+            self.current().map(|t| &t.value)
         {
             external = true;
             self.advance();
@@ -565,7 +574,7 @@ impl<'a> Parser<'a> {
         let root = self
             .advance()
             .ok_or(anyhow::anyhow!("expected ident or self:: or root::"))?
-            .kind
+            .value
             .clone();
 
         while let Ok(_) = self.expect(Token::Symbol(lex::Symbol::Punctuation(
@@ -597,7 +606,7 @@ impl<'a> Parser<'a> {
 
     fn parse_struct_def(&mut self, unit_id: UnitId, public: bool) -> Result<()> {
         self.skip_whitespace();
-        let Some(Token::Ident(name)) = self.advance().map(|t| t.kind.clone()) else {
+        let Some(Token::Ident(name)) = self.advance().map(|t| t.value.clone()) else {
             return Err(anyhow::anyhow!("expected identifier"));
         };
 
@@ -657,7 +666,7 @@ impl<'a> Parser<'a> {
 
     fn parse_submodule(&mut self, unit_id: UnitId, public: bool) -> Result<()> {
         self.skip_whitespace();
-        let Some(Token::Ident(name)) = self.advance().map(|t| t.kind.clone()) else {
+        let Some(Token::Ident(name)) = self.advance().map(|t| t.value.clone()) else {
             return Err(anyhow::anyhow!("expected identifier"));
         };
 
@@ -684,7 +693,7 @@ impl<'a> Parser<'a> {
         self.skip_whitespace();
         while let Some(current) = match self.advance() {
             Some(e)
-                if e.kind.same_kind(&Token::Symbol(lex::Symbol::Punctuation(
+                if e.value.same_kind(&Token::Symbol(lex::Symbol::Punctuation(
                     lex::Punctuation::CloseBrace,
                 ))) =>
             {
@@ -693,7 +702,7 @@ impl<'a> Parser<'a> {
             Some(v) => Some(v),
             None => None,
         } {
-            match &current.kind {
+            match &current.value {
                 // Public item
                 Token::Visibility(Visibility::Public) if public == false => public = true,
                 // Anything else is private
@@ -707,7 +716,7 @@ impl<'a> Parser<'a> {
                         Keyword::Mod => self.parse_submodule(new_unit, pb)?,
                         Keyword::Struct => self.parse_struct_def(new_unit, pb)?,
                         Keyword::Type => self.parse_type_alias(new_unit, pb)?,
-                        _ => panic!(),
+                        _ => return Err(anyhow::anyhow!("Expected item, found {:?}", kw)),
                     }
                 }
                 Token::Visibility(Visibility::Public) if public == true => {
@@ -730,7 +739,7 @@ impl<'a> Parser<'a> {
 
     fn expect_ident(&mut self) -> Result<String> {
         self.skip_whitespace();
-        let Some(Token::Ident(name)) = self.advance().map(|t| t.kind.clone()) else {
+        let Some(Token::Ident(name)) = self.advance().map(|t| t.value.clone()) else {
             return Err(anyhow::anyhow!("expected identifier"));
         };
         self.skip_whitespace();
@@ -740,7 +749,7 @@ impl<'a> Parser<'a> {
     fn parse_fn(&mut self, unit_id: UnitId, public: bool) -> Result<()> {
         let vis = Self::vis(public);
         self.skip_whitespace();
-        let Some(Token::Ident(name)) = self.advance().map(|t| t.kind.clone()) else {
+        let Some(Token::Ident(name)) = self.advance().map(|t| t.value.clone()) else {
             return Err(anyhow::anyhow!("expected identifier"));
         };
 
@@ -757,7 +766,7 @@ impl<'a> Parser<'a> {
             }
 
             self.skip_whitespace();
-            let Some(Token::Ident(name)) = self.advance().map(|t| t.kind.clone()) else {
+            let Some(Token::Ident(name)) = self.advance().map(|t| t.value.clone()) else {
                 return Err(anyhow::anyhow!("expected identifier"));
             };
 
@@ -784,7 +793,7 @@ impl<'a> Parser<'a> {
 
         self.skip_whitespace();
         let ret_ty = if let Some(Token::Symbol(lex::Symbol::Punctuation(Punctuation::RightArrow))) =
-            self.peek().map(|t| &t.kind)
+            self.peek().map(|t| &t.value)
         {
             self.skip_whitespace();
             self.advance();
@@ -820,7 +829,7 @@ impl<'a> Parser<'a> {
         let mut nodes = Vec::new();
         loop {
             if let Some(Token::Symbol(lex::Symbol::Punctuation(lex::Punctuation::CloseBrace))) =
-                self.peek().map(|t| &t.kind)
+                self.peek().map(|t| &t.value)
             {
                 break;
             }
@@ -831,7 +840,7 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_stmt(&mut self, unit_id: UnitId) -> Result<NodeId> {
-        match self.peek().map(|t| &t.kind).unwrap() {
+        match self.peek().map(|t| &t.value).unwrap() {
             Token::Keyword(Keyword::Let) => self.parse_let_stmt(unit_id),
             Token::Keyword(Keyword::Return) => self.parse_return_stmt(unit_id),
             Token::Keyword(Keyword::Break) => self.parse_break_stmt(unit_id),
@@ -853,7 +862,7 @@ impl<'a> Parser<'a> {
 
         let ty = self.parse_path()?;
         let init = if let Some(Token::Symbol(lex::Symbol::Assignment(lex::Assignment::Assign))) =
-            self.peek().map(|t| &t.kind)
+            self.peek().map(|t| &t.value)
         {
             self.advance();
             Some(self.parse_expr(unit_id)?)
@@ -875,7 +884,7 @@ impl<'a> Parser<'a> {
 
     fn parse_return_stmt(&mut self, unit_id: UnitId) -> Result<NodeId> {
         self.expect(Token::Keyword(Keyword::Return))?;
-        if let Some(Token::Newline) = self.peek().map(|t| &t.kind) {
+        if let Some(Token::Newline) = self.peek().map(|t| &t.value) {
             self.advance();
             return Ok(self
                 .package
@@ -898,14 +907,14 @@ impl<'a> Parser<'a> {
     }
 
     fn skip_whitespace(&mut self) {
-        while let Some(Token::Newline) = self.current().map(|t| &t.kind) {
+        while let Some(Token::Newline) = self.current().map(|t| &t.value) {
             self.advance();
         }
     }
 
     fn parse_break_stmt(&mut self, unit_id: UnitId) -> Result<NodeId> {
         self.expect(Token::Keyword(Keyword::Break))?;
-        if let Some(Token::Newline) = self.peek().map(|t| &t.kind) {
+        if let Some(Token::Newline) = self.peek().map(|t| &t.value) {
             self.advance();
             return Ok(self
                 .package
