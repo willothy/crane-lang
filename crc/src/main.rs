@@ -27,6 +27,12 @@ fn main() -> anyhow::Result<()> {
     //     tokens.iter().rev().take(5).rev().collect::<Vec<_>>()
     // );
 
+    // use lex::IntoStream;
+    // let mut stream = tokens.into_stream();
+    // stream.fetch_tokens().for_each(|t| {
+    //     println!("{:#?}", t);
+    // });
+
     let mut package = Package::new();
 
     let mut parser = parse::Parser::new(tokens, &mut package);

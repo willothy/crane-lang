@@ -405,6 +405,44 @@ pub struct Spanned<T> {
     pub value: T,
 }
 
+impl<T> Spanned<T> {
+    pub fn split(self) -> (T, Span) {
+        (self.value, self.span)
+    }
+}
+
+pub trait SplitSpanned<T> {
+    fn split_spanned(self) -> Vec<(T, Span)>;
+}
+
+impl SplitSpanned<Token> for Vec<Spanned<Token>> {
+    fn split_spanned(self) -> Vec<(Token, Span)> {
+        self.into_iter()
+            .map(|t| -> (Token, Span) { t.split() })
+            .collect()
+    }
+}
+
+pub trait IntoStream<I, S: chumsky::Span> {
+    fn into_stream<'a>(self) -> chumsky::BoxStream<'a, I, S>;
+}
+
+impl IntoStream<Token, Span> for Vec<Spanned<Token>> {
+    fn into_stream<'a>(self) -> chumsky::BoxStream<'a, Token, Span> {
+        use chumsky::BoxStream;
+
+        let (source, start) = self
+            .first()
+            .map(|tok| (tok.span.source(), tok.span.start()))
+            .unwrap_or((Arc::new(PathBuf::from("unknown")), 0));
+        let end = self.last().map(|tok| tok.span.end()).unwrap_or(0);
+        BoxStream::from_iter(
+            Span::from_range(source, start..end),
+            Box::new(self.into_iter().map(|tok| (tok.value, tok.span))),
+        )
+    }
+}
+
 pub type Sources = Arc<RwLock<FileCache>>;
 
 pub fn lex_str(

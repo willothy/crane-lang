@@ -4,7 +4,6 @@ use std::{
 };
 
 use anyhow::Result;
-use chumsky::recursive::recursive;
 use log::debug;
 
 use crane_lex as lex;
@@ -200,10 +199,38 @@ impl Package {
                     }
                     writeln!(out, "").unwrap();
                 }
-                Stmt::Assign { lhs, op, rhs } => todo!(),
-                Stmt::Break { value } => todo!(),
-                Stmt::Return { value } => todo!(),
-                Stmt::Continue => todo!(),
+                Stmt::Break { value } => {
+                    write!(
+                        out,
+                        "{indent_str}break",
+                        indent_str = "  ".repeat(indent - 1)
+                    )
+                    .unwrap();
+                    if let Some(value) = value {
+                        write!(out, " ").unwrap();
+                        self.print_node(unit, *value, indent + 1, out, nested + 1);
+                    }
+                    writeln!(out, "").unwrap();
+                }
+                Stmt::Return { value } => {
+                    write!(
+                        out,
+                        "{indent_str}return",
+                        indent_str = "  ".repeat(indent - 1)
+                    )
+                    .unwrap();
+                    if let Some(value) = value {
+                        write!(out, " ").unwrap();
+                        self.print_node(unit, *value, indent + 1, out, nested + 1);
+                    }
+                    writeln!(out, "").unwrap();
+                }
+                Stmt::Continue => writeln!(
+                    out,
+                    "{indent_str}continue",
+                    indent_str = "  ".repeat(indent - 1)
+                )
+                .unwrap(),
             },
             ASTNode::Item(item) => {
                 match item {
@@ -710,11 +737,6 @@ pub enum Stmt {
         name: String,
         ty: ItemPath,
         value: Option<NodeId>,
-    },
-    Assign {
-        lhs: NodeId,
-        op: AssignOp,
-        rhs: NodeId,
     },
     Break {
         value: Option<NodeId>,
