@@ -210,8 +210,7 @@ use std::{
 use ariadne::{Cache, FileCache, Source};
 use chumsky::{
     prelude::*,
-    recovery::Strategy,
-    text::{keyword, newline, whitespace, Character},
+    text::{keyword, Character},
 };
 
 #[derive(Clone, Debug, PartialEq)]
@@ -326,13 +325,13 @@ impl Lexer {
         let source = files
             .fetch(path.as_ref())
             .map_err(|e| anyhow::anyhow!("{:?}", e))?;
-        self.lex(&source, path.as_ref())
+        self.lex(source, path.as_ref())
     }
 
-    pub fn lex<'a>(
+    pub fn lex(
         &self,
         source: &Source,
-        source_id: &'a Path,
+        source_id: &Path,
     ) -> Result<
         (
             Option<Vec<Spanned<Token>>>,
@@ -541,7 +540,6 @@ impl Lexer {
 
         let source_str = source
             .lines()
-            .into_iter()
             .map(|l| l.chars().collect::<String>())
             .collect::<Vec<String>>()
             // for some reason source.chars() doesn't include newlines?

@@ -1,6 +1,6 @@
 use crane_lex as lex;
 use crane_parse as parse;
-use lex::Span;
+
 use parse::Package;
 
 fn main() -> anyhow::Result<()> {

@@ -1,9 +1,9 @@
 use std::{collections::HashMap, fmt::Display};
 
 use anyhow::Result;
-use ariadne::{Report, ReportBuilder};
+
 use crane_lex as lex;
-use lex::{Keyword, Literal, Punctuation, Span, Spanned, Token, Visibility};
+use lex::{Keyword, Literal, Punctuation, Spanned, Token, Visibility};
 use slotmap::{new_key_type, SlotMap};
 
 new_key_type! {
@@ -495,7 +495,7 @@ impl<'a> Parser<'a> {
         while let Some(current) = self.advance() {
             match &current.value {
                 // Public item
-                Token::Visibility(Visibility::Public) if public == false => public = true,
+                Token::Visibility(Visibility::Public) if !public => public = true,
                 // Anything else is
                 Token::Keyword(kw) => {
                     let pb = public;
@@ -511,7 +511,7 @@ impl<'a> Parser<'a> {
                     }
                     self.skip_whitespace();
                 }
-                Token::Visibility(Visibility::Public) if public == true => {
+                Token::Visibility(Visibility::Public) if public => {
                     unreachable!(
                         "The previous token set public to true, so this should never happen"
                     )
@@ -577,9 +577,9 @@ impl<'a> Parser<'a> {
             .value
             .clone();
 
-        while let Ok(_) = self.expect(Token::Symbol(lex::Symbol::Punctuation(
+        while self.expect(Token::Symbol(lex::Symbol::Punctuation(
             lex::Punctuation::DoubleColon,
-        ))) {
+        ))).is_ok() {
             if let Token::Ident(name) = self.expect(Token::Ident("".into()))? {
                 path.push(name);
             }
@@ -590,12 +590,12 @@ impl<'a> Parser<'a> {
             Token::Keyword(Keyword::Root) => ItemPath::Absolute(path),
             Token::Ident(name) => {
                 if external {
-                    path.insert(0, name.clone());
+                    path.insert(0, name);
                     ItemPath::External(path)
-                } else if path.len() == 0 {
-                    ItemPath::Name(name.clone())
+                } else if path.is_empty() {
+                    ItemPath::Name(name)
                 } else {
-                    path.insert(0, name.clone());
+                    path.insert(0, name);
                     ItemPath::Relative(path)
                 }
             }
@@ -704,7 +704,7 @@ impl<'a> Parser<'a> {
         } {
             match &current.value {
                 // Public item
-                Token::Visibility(Visibility::Public) if public == false => public = true,
+                Token::Visibility(Visibility::Public) if !public => public = true,
                 // Anything else is private
                 Token::Keyword(kw) => {
                     let pb = public;
@@ -719,7 +719,7 @@ impl<'a> Parser<'a> {
                         _ => return Err(anyhow::anyhow!("Expected item, found {:?}", kw)),
                     }
                 }
-                Token::Visibility(Visibility::Public) if public == true => {
+                Token::Visibility(Visibility::Public) if public => {
                     unreachable!(
                         "The previous token set public to true, so this should never happen"
                     )
@@ -759,9 +759,9 @@ impl<'a> Parser<'a> {
 
         let mut params = Vec::new();
         loop {
-            if let Ok(_) = self.expect(Token::Symbol(lex::Symbol::Punctuation(
+            if self.expect(Token::Symbol(lex::Symbol::Punctuation(
                 lex::Punctuation::CloseParen,
-            ))) {
+            ))).is_ok() {
                 break;
             }
 
@@ -886,23 +886,23 @@ impl<'a> Parser<'a> {
         self.expect(Token::Keyword(Keyword::Return))?;
         if let Some(Token::Newline) = self.peek().map(|t| &t.value) {
             self.advance();
-            return Ok(self
+            Ok(self
                 .package
                 .units
                 .get_mut(unit_id)
                 .ok_or(anyhow::anyhow!("unit not found"))?
                 .ast_nodes
-                .insert(ASTNode::Stmt(Stmt::Return { value: None })));
+                .insert(ASTNode::Stmt(Stmt::Return { value: None })))
         } else {
             let value = self.parse_expr(unit_id)?;
             self.expect(Token::Newline)?;
-            return Ok(self
+            Ok(self
                 .package
                 .units
                 .get_mut(unit_id)
                 .ok_or(anyhow::anyhow!("unit not found"))?
                 .ast_nodes
-                .insert(ASTNode::Stmt(Stmt::Return { value: Some(value) })));
+                .insert(ASTNode::Stmt(Stmt::Return { value: Some(value) })))
         }
     }
 
@@ -945,7 +945,7 @@ impl<'a> Parser<'a> {
             .insert(ASTNode::Stmt(Stmt::Continue)))
     }
 
-    fn parse_expr(&mut self, unit_id: UnitId) -> Result<NodeId> {
+    fn parse_expr(&mut self, _unit_id: UnitId) -> Result<NodeId> {
         todo!()
     }
 }
