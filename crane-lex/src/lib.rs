@@ -169,6 +169,65 @@ impl Token {
             _ => false,
         }
     }
+
+    pub fn is_unary_op(&self) -> bool {
+        match self {
+            Token::Symbol(Symbol::Logical(Logical::Not)) => true,
+            Token::Symbol(Symbol::Bitwise(Bitwise::BitwiseNot)) => true,
+            Token::Symbol(Symbol::Arithmetic(Arithmetic::Minus)) => true,
+            // Deref
+            Token::Symbol(Symbol::Arithmetic(Arithmetic::Times)) => true,
+            // Ref
+            Token::Symbol(Symbol::Bitwise(Bitwise::And)) => true,
+            _ => false,
+        }
+    }
+
+    pub fn precedence(&self) -> u8 {
+        use self::Arithmetic::*;
+        use self::Bitwise::*;
+        use self::Comparison::*;
+        use self::Symbol::*;
+        use Token::Symbol;
+        match self {
+            // Comparison operators have the highest precedence
+            Symbol(Comparison(Equal))
+            | Symbol(Comparison(NotEqual))
+            | Symbol(Comparison(LessThan))
+            | Symbol(Comparison(GreaterThan))
+            | Symbol(Comparison(LessThanOrEqual))
+            | Symbol(Comparison(GreaterThanOrEqual)) => 1,
+            // Logical operators have high precedence but lower than comparison
+            Symbol(Logical(self::Logical::And)) | Symbol(Logical(self::Logical::Or)) => 2,
+            // Arithmetic operators have medium precedence
+            Symbol(Arithmetic(Plus)) | Symbol(Arithmetic(Minus)) => 3,
+            // Multiplicative operators have higher precedence than additive ones
+            Symbol(Arithmetic(Times)) | Symbol(Arithmetic(Divide)) | Symbol(Arithmetic(Mod)) => 4,
+            // Bitwise operators have lower precedence than arithmetic ones
+            Symbol(Bitwise(And)) | Symbol(Bitwise(Xor)) | Symbol(Bitwise(Or)) => 5,
+            // Bit-shift operators have lower precedence than bitwise ones
+            Symbol(Bitwise(ShiftLeft)) | Symbol(Bitwise(ShiftRight)) => 6,
+            // Parentheses and other operators not listed have the lowest precedence
+            _ => 7,
+        }
+    }
+
+    pub fn is_binary_op(&self) -> bool {
+        match self {
+            Token::Symbol(Symbol::Arithmetic(_)) => true,
+            Token::Symbol(Symbol::Bitwise(_)) => true,
+            Token::Symbol(Symbol::Comparison(_)) => true,
+            Token::Symbol(Symbol::Logical(_)) => true,
+            _ => false,
+        }
+    }
+
+    pub fn is_assignment_op(&self) -> bool {
+        match self {
+            Token::Symbol(Symbol::Assignment(_)) => true,
+            _ => false,
+        }
+    }
 }
 
 impl TryFrom<&str> for Keyword {
@@ -415,7 +474,31 @@ impl Lexer {
                 }
             });
 
-        let symbol = one_of::<_, _, Simple<char>>("+-*/=!<>&|^{}[]()#@:;,.")
+        let punctuation = one_of::<_, _, Simple<char>>("{}[]()#@;,?").map_with_span(
+            |x: char, span: Range<usize>| Spanned {
+                span: Span {
+                    source: source_id.clone(),
+                    start: span.start(),
+                    end: span.end(),
+                },
+                value: Token::Symbol(Symbol::Punctuation(match x {
+                    '{' => Punctuation::OpenBrace,
+                    '}' => Punctuation::CloseBrace,
+                    '[' => Punctuation::OpenBracket,
+                    ']' => Punctuation::CloseBracket,
+                    '(' => Punctuation::OpenParen,
+                    ')' => Punctuation::CloseParen,
+                    '#' => Punctuation::Hash,
+                    '@' => Punctuation::At,
+                    ';' => Punctuation::Semicolon,
+                    ',' => Punctuation::Comma,
+                    '?' => Punctuation::Question,
+                    _ => unreachable!(),
+                })),
+            },
+        );
+
+        let symbol = one_of::<_, _, Simple<char>>("+-*/=!<>&|^:.")
             .repeated()
             .at_least(1)
             .try_map(|x: Vec<char>, span| {
@@ -455,28 +538,16 @@ impl Lexer {
                         "&" => Symbol::Bitwise(Bitwise::And),
                         "|" => Symbol::Bitwise(Bitwise::Or),
                         "^" => Symbol::Bitwise(Bitwise::Xor),
-                        "[" => Symbol::Punctuation(Punctuation::OpenBracket),
-                        "]" => Symbol::Punctuation(Punctuation::CloseBracket),
-                        "{" => Symbol::Punctuation(Punctuation::OpenBrace),
-                        "}" => Symbol::Punctuation(Punctuation::CloseBrace),
-                        "(" => Symbol::Punctuation(Punctuation::OpenParen),
-                        ")" => Symbol::Punctuation(Punctuation::CloseParen),
-                        "," => Symbol::Punctuation(Punctuation::Comma),
                         "..." => Symbol::Punctuation(Punctuation::Ellipsis),
                         "." => Symbol::Punctuation(Punctuation::Dot),
                         "::" => Symbol::Punctuation(Punctuation::DoubleColon),
                         ":" => Symbol::Punctuation(Punctuation::Colon),
-                        ";" => Symbol::Punctuation(Punctuation::Semicolon),
-                        "?" => Symbol::Punctuation(Punctuation::Question),
-                        "#" => Symbol::Punctuation(Punctuation::Hash),
-                        "@" => Symbol::Punctuation(Punctuation::At),
                         igl => {
                             return Err(Self::err(format!("Invalid symbol {}", igl), Some(span)))
                         }
                     }),
                 })
-            })
-            .padded();
+            });
 
         let int_literal = text::int(10)
             .map_with_span(|num: String, span: Range<usize>| Spanned {
@@ -528,6 +599,7 @@ impl Lexer {
 
         let token = kw
             .or(vis)
+            .or(punctuation)
             .or(symbol)
             .or(ident)
             .or(bool)

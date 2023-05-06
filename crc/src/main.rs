@@ -1,3 +1,4 @@
+use ariadne::Span;
 use crane_lex as lex;
 use crane_parse as parse;
 
@@ -12,6 +13,10 @@ struct Test {
 
 pub type Alias = self::Test
 
+fn test_func() {
+
+}
+
 mod test {
     struct Type {
         a: i32,
@@ -22,12 +27,19 @@ mod test {
     let (tokens, errors) = lexer.lex_str(test)?;
 
     for error in errors {
-        println!("{}", error);
+        println!(
+            "{} ({})",
+            error,
+            // error.span().,
+            error.span().start()
+        );
     }
     let Some(tokens) = tokens else {
         println!("No tokens");
         return Ok(());
     };
+
+    println!("{:#?}", tokens);
 
     let mut package = Package::new();
 

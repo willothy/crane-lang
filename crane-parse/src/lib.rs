@@ -3,7 +3,10 @@ use std::{collections::HashMap, fmt::Display};
 use anyhow::Result;
 
 use crane_lex as lex;
-use lex::{Keyword, Literal, Punctuation, Spanned, Token, Visibility};
+use lex::{
+    Arithmetic, Bitwise, Comparison, Keyword, Literal, Logical, Punctuation, Spanned, Symbol,
+    Token, Visibility,
+};
 use slotmap::{new_key_type, SlotMap};
 
 new_key_type! {
@@ -335,6 +338,11 @@ pub enum BinaryOp {
     Gt,
     Leq,
     Geq,
+    Xor,
+    BitwiseAnd,
+    BitwiseOr,
+    ShiftLeft,
+    ShiftRight,
 }
 
 #[derive(Debug, PartialEq)]
@@ -577,9 +585,12 @@ impl<'a> Parser<'a> {
             .value
             .clone();
 
-        while self.expect(Token::Symbol(lex::Symbol::Punctuation(
-            lex::Punctuation::DoubleColon,
-        ))).is_ok() {
+        while self
+            .expect(Token::Symbol(lex::Symbol::Punctuation(
+                lex::Punctuation::DoubleColon,
+            )))
+            .is_ok()
+        {
             if let Token::Ident(name) = self.expect(Token::Ident("".into()))? {
                 path.push(name);
             }
@@ -759,9 +770,12 @@ impl<'a> Parser<'a> {
 
         let mut params = Vec::new();
         loop {
-            if self.expect(Token::Symbol(lex::Symbol::Punctuation(
-                lex::Punctuation::CloseParen,
-            ))).is_ok() {
+            if self
+                .expect(Token::Symbol(lex::Symbol::Punctuation(
+                    lex::Punctuation::CloseParen,
+                )))
+                .is_ok()
+            {
                 break;
             }
 
@@ -945,7 +959,82 @@ impl<'a> Parser<'a> {
             .insert(ASTNode::Stmt(Stmt::Continue)))
     }
 
-    fn parse_expr(&mut self, _unit_id: UnitId) -> Result<NodeId> {
+    fn parse_expr(&mut self, unit_id: UnitId) -> Result<NodeId> {
+        self.parse_binary_expr(unit_id, 0)
+    }
+
+    fn parse_unary_expr(&mut self, unit_id: UnitId) -> Result<NodeId> {
+        let op = self.advance().filter(|p| p.value.is_unary_op()).cloned();
+        if let Some(op) = op {
+            let operand = self.parse_expr(unit_id)?;
+            Ok(self
+                .package
+                .units
+                .get_mut(unit_id)
+                .ok_or(anyhow::anyhow!("unit not found"))?
+                .ast_nodes
+                .insert(ASTNode::Expr(Expr::UnaryOp {
+                    op: match op.value {
+                        Token::Symbol(Symbol::Arithmetic(Arithmetic::Minus)) => UnaryOp::Neg,
+                        Token::Symbol(Symbol::Logical(Logical::Not)) => UnaryOp::Not,
+                        _ => unreachable!(),
+                    },
+                    operand,
+                })))
+        } else {
+            self.parse_primary_expr()
+        }
+    }
+
+    fn parse_primary_expr(&self) -> std::result::Result<NodeId, anyhow::Error> {
         todo!()
+    }
+
+    fn parse_binary_expr(&mut self, unit_id: UnitId, min_prec: u8) -> Result<NodeId> {
+        let mut lhs = self.parse_unary_expr(unit_id)?;
+        loop {
+            let prec = self.peek().map(|t| t.value.precedence()).unwrap_or(0);
+            if prec < min_prec {
+                break;
+            }
+            let op = match self.advance() {
+                Some(op) if op.value.is_binary_op() => match op.value {
+                    Token::Symbol(Symbol::Arithmetic(Arithmetic::Plus)) => BinaryOp::Add,
+                    Token::Symbol(Symbol::Arithmetic(Arithmetic::Minus)) => BinaryOp::Sub,
+                    Token::Symbol(Symbol::Arithmetic(Arithmetic::Times)) => BinaryOp::Mul,
+                    Token::Symbol(Symbol::Arithmetic(Arithmetic::Divide)) => BinaryOp::Div,
+                    Token::Symbol(Symbol::Arithmetic(Arithmetic::Mod)) => BinaryOp::Mod,
+                    Token::Symbol(Symbol::Logical(Logical::And)) => BinaryOp::And,
+                    Token::Symbol(Symbol::Logical(Logical::Or)) => BinaryOp::Or,
+                    Token::Symbol(Symbol::Bitwise(Bitwise::Xor)) => BinaryOp::Xor,
+                    Token::Symbol(Symbol::Bitwise(Bitwise::And)) => BinaryOp::BitwiseAnd,
+                    Token::Symbol(Symbol::Bitwise(Bitwise::Or)) => BinaryOp::BitwiseOr,
+                    Token::Symbol(Symbol::Bitwise(Bitwise::ShiftLeft)) => BinaryOp::ShiftLeft,
+                    Token::Symbol(Symbol::Bitwise(Bitwise::ShiftRight)) => BinaryOp::ShiftRight,
+                    Token::Symbol(Symbol::Comparison(Comparison::Equal)) => BinaryOp::Eq,
+                    Token::Symbol(Symbol::Comparison(Comparison::NotEqual)) => BinaryOp::Neq,
+                    Token::Symbol(Symbol::Comparison(Comparison::LessThan)) => BinaryOp::Lt,
+                    Token::Symbol(Symbol::Comparison(Comparison::LessThanOrEqual)) => BinaryOp::Leq,
+                    Token::Symbol(Symbol::Comparison(Comparison::GreaterThan)) => BinaryOp::Gt,
+                    Token::Symbol(Symbol::Comparison(Comparison::GreaterThanOrEqual)) => {
+                        BinaryOp::Geq
+                    }
+                    _ => unreachable!(),
+                },
+                Some(op) => {
+                    return Err(anyhow::anyhow!("expected binary operator, found {:?}", op))
+                }
+                None => return Err(anyhow::anyhow!("unexpected EOF")),
+            };
+            let rhs = self.parse_binary_expr(unit_id, prec + 1)?;
+            lhs = self
+                .package
+                .units
+                .get_mut(unit_id)
+                .ok_or(anyhow::anyhow!("unit not found"))?
+                .ast_nodes
+                .insert(ASTNode::Expr(Expr::BinaryOp { lhs, op, rhs }));
+        }
+        Ok(lhs)
     }
 }
