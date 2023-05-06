@@ -1,757 +1,36 @@
-use std::{
-    collections::HashMap,
-    fmt::{Display, Write},
-};
-
 use anyhow::Result;
 use log::debug;
+use slotmap::new_key_type;
 
 use crane_lex as lex;
-use lex::{
-    Arithmetic, Assignment, Bitwise, Comparison, Keyword, Literal, Logical, OperatorType,
-    Punctuation, Spanned, Symbol, Token, Visibility,
+use crane_lex::{
+    Assignment, Keyword, OperatorType, Punctuation, Spanned, Symbol, Token, Visibility,
 };
-use slotmap::{new_key_type, SlotMap};
+
+pub mod expr;
+pub mod item;
+pub mod ops;
+pub mod package;
+pub mod path;
+pub mod stmt;
+pub mod unit;
+
+use ops::{AssignOp, BinaryOp, UnaryOp};
+use package::Package;
+use path::ItemPath;
+use unit::{NodeId, UnitId};
+
+use crate::{expr::Expr, item::Item, stmt::Stmt, unit::Unit};
 
 new_key_type! {
-    pub struct NodeId;
     pub struct TypeId;
-    pub struct UnitId;
-}
-
-#[derive(Debug)]
-pub struct Unit {
-    parent: Option<UnitId>,
-    name: String,
-    ast_nodes: SlotMap<NodeId, ASTNode>,
-    members: HashMap<String, NodeId>,
-}
-
-#[derive(Debug)]
-pub struct Package {
-    units: SlotMap<UnitId, Unit>,
-    root: UnitId,
-}
-
-impl Package {
-    pub fn new() -> Self {
-        Self {
-            units: SlotMap::with_key(),
-            root: UnitId::default(),
-        }
-    }
-
-    pub fn name(&self) -> &str {
-        &self.units.get(self.root).unwrap().name
-    }
-
-    pub fn get_unit(&self, id: UnitId) -> Option<&Unit> {
-        self.units.get(id)
-    }
-
-    fn get_parent_name(&self, unit_id: UnitId) -> Option<(UnitId, String)> {
-        let unit = self.units.get(unit_id).unwrap();
-        if let Some(parent) = unit.parent {
-            return self.units.get(parent).map(|u| (parent, u.name.clone()));
-        }
-        None
-    }
-
-    fn canonicalize_path(&self, unit_id: UnitId, path: ItemPath) -> ItemPath {
-        match path {
-            ItemPath::Name(name) => {
-                let mut new_path = vec![name];
-                let mut id = unit_id;
-                while let Some((new_id, parent)) = self.get_parent_name(id) {
-                    id = new_id;
-                    new_path.push(parent);
-                }
-                new_path.reverse();
-                ItemPath::Absolute(new_path)
-            }
-            path => path,
-        }
-    }
-
-    pub fn print_node(
-        &self,
-        unit: UnitId,
-        node: NodeId,
-        indent: usize,
-        out: &mut dyn Write,
-        nested: usize,
-    ) {
-        let node = self.units.get(unit).unwrap().ast_nodes.get(node).unwrap();
-        let indent_str = "  ".repeat(indent);
-        match node {
-            ASTNode::Expr(e) => match e {
-                Expr::Literal(l) => match l {
-                    Literal::Int(i) => write!(out, "{i}").unwrap(),
-                    Literal::Float(f) => write!(out, "{f}").unwrap(),
-                    Literal::String(s) => write!(out, "\"{s}\"").unwrap(),
-                    Literal::Char(c) => write!(out, "'{c}'").unwrap(),
-                    Literal::Bool(b) => write!(out, "{b}").unwrap(),
-                },
-                Expr::Ident(n) => write!(out, "{n}").unwrap(),
-                Expr::StructInit { ty, fields } => {
-                    write!(out, "{ty} {{", ty = ty).unwrap();
-                    for (name, expr) in fields {
-                        write!(out, "{name}: ", name = name).unwrap();
-                        self.print_node(unit, *expr, indent, out, nested + 1);
-                        write!(out, ", ").unwrap();
-                    }
-                    write!(out, "}}").unwrap();
-                }
-                Expr::Call { callee, args } => {
-                    self.print_node(unit, *callee, indent, out, nested + 1);
-                    write!(out, "(").unwrap();
-                    for arg in args {
-                        self.print_node(unit, *arg, indent, out, nested + 1);
-                        write!(out, ", ").unwrap();
-                    }
-                    write!(out, ")").unwrap();
-                }
-                Expr::MemberAccess {
-                    object,
-                    member,
-                    computed,
-                } => {
-                    self.print_node(unit, *object, indent, out, nested + 1);
-                    if *computed {
-                        write!(out, "[").unwrap();
-                        self.print_node(unit, *member, indent, out, nested + 1);
-                        write!(out, "]").unwrap();
-                    } else {
-                        write!(out, ".").unwrap();
-                        self.print_node(unit, *member, indent, out, nested + 1);
-                    }
-                }
-                Expr::UnaryOp { op, operand } => {
-                    write!(out, "{op}", op = op).unwrap();
-                    self.print_node(unit, *operand, indent, out, nested + 1);
-                }
-                Expr::BinaryOp { op, lhs, rhs } => {
-                    self.print_node(unit, *lhs, indent, out, nested + 1);
-                    write!(out, " {op} ", op = op).unwrap();
-                    self.print_node(unit, *rhs, indent, out, nested + 1);
-                }
-                Expr::AssignmentOp { lhs, op, rhs } => {
-                    if nested <= 3 {
-                        write!(out, "{}", "  ".repeat(indent - 1)).unwrap();
-                    }
-                    self.print_node(unit, *lhs, indent, out, nested + 1);
-                    write!(out, " {op} ", op = op).unwrap();
-                    self.print_node(unit, *rhs, indent, out, nested + 1);
-                }
-                Expr::Cast { ty, expr } => {
-                    write!(out, "({ty})", ty = ty).unwrap();
-                    self.print_node(unit, *expr, indent, out, nested + 1);
-                }
-                Expr::Block { stmts } => {
-                    for stmt in stmts {
-                        self.print_node(unit, *stmt, indent + 1, out, nested + 1);
-                    }
-                }
-                Expr::If { cond, then, r#else } => {
-                    writeln!(out, "{indent_str}if (", indent_str = indent_str).unwrap();
-                    self.print_node(unit, *cond, indent + 1, out, nested + 1);
-                    writeln!(out, ") {{").unwrap();
-                    self.print_node(unit, *then, indent + 1, out, nested + 1);
-                    writeln!(out, "{indent_str}}}", indent_str = indent_str).unwrap();
-                    if let Some(r#else) = r#else {
-                        writeln!(out, "{indent_str}else {{", indent_str = indent_str).unwrap();
-                        self.print_node(unit, *r#else, indent + 1, out, nested + 1);
-                        writeln!(out, "\n{indent_str}}}", indent_str = indent_str).unwrap();
-                    }
-                }
-                Expr::While { cond, body } => {
-                    writeln!(out, "{indent_str}while (", indent_str = indent_str).unwrap();
-                    self.print_node(unit, *cond, indent + 1, out, nested + 1);
-                    writeln!(out, ") {{").unwrap();
-                    self.print_node(unit, *body, indent + 1, out, nested + 1);
-                    writeln!(out, "\n{indent_str}}}", indent_str = indent_str).unwrap();
-                }
-                Expr::Loop { body } => {
-                    writeln!(out, "{indent_str}loop {{", indent_str = indent_str).unwrap();
-                    self.print_node(unit, *body, indent + 1, out, nested + 1);
-                    writeln!(out, "\n{indent_str}}}", indent_str = indent_str).unwrap();
-                }
-                Expr::ScopeResolution { object, member } => {
-                    self.print_node(unit, *object, indent, out, nested + 1);
-                    write!(out, "::").unwrap();
-                    self.print_node(unit, *member, indent, out, nested + 1);
-                }
-            },
-            ASTNode::Stmt(s) => match s {
-                Stmt::Expr(e) => self.print_node(unit, *e, indent, out, nested + 1),
-                Stmt::Let { name, ty, value } => {
-                    write!(
-                        out,
-                        "{indent_str}let {name}: {ty}",
-                        indent_str = "  ".repeat(indent - 1),
-                        name = name,
-                        ty = ty,
-                    )
-                    .unwrap();
-                    if let Some(value) = value {
-                        write!(out, " = ").unwrap();
-                        self.print_node(unit, *value, indent + 1, out, nested + 1);
-                    }
-                    writeln!(out, "").unwrap();
-                }
-                Stmt::Break { value } => {
-                    write!(
-                        out,
-                        "{indent_str}break",
-                        indent_str = "  ".repeat(indent - 1)
-                    )
-                    .unwrap();
-                    if let Some(value) = value {
-                        write!(out, " ").unwrap();
-                        self.print_node(unit, *value, indent + 1, out, nested + 1);
-                    }
-                    writeln!(out, "").unwrap();
-                }
-                Stmt::Return { value } => {
-                    write!(
-                        out,
-                        "{indent_str}return",
-                        indent_str = "  ".repeat(indent - 1)
-                    )
-                    .unwrap();
-                    if let Some(value) = value {
-                        write!(out, " ").unwrap();
-                        self.print_node(unit, *value, indent + 1, out, nested + 1);
-                    }
-                    writeln!(out, "").unwrap();
-                }
-                Stmt::Continue => writeln!(
-                    out,
-                    "{indent_str}continue",
-                    indent_str = "  ".repeat(indent - 1)
-                )
-                .unwrap(),
-            },
-            ASTNode::Item(item) => {
-                match item {
-                    Item::Submodule { vis, name, id } => {
-                        writeln!(
-                            out,
-                            "{indent_str}{vis}mod {name} (Unit {path}) {{",
-                            vis = vis,
-                            name = name,
-                            path = self.canonicalize_path(*id, name.clone()),
-                        )
-                        .unwrap();
-                        for member in self.units.get(*id).unwrap().members.values() {
-                            self.print_node(*id, *member, indent + 1, out, nested + 1);
-                        }
-                        writeln!(out, "  }}").unwrap();
-                    }
-                    Item::FunctionDef {
-                        vis,
-                        name,
-                        params,
-                        ret_ty,
-                        body,
-                    } => {
-                        writeln!(
-                            out,
-                            "{indent_str}{vis}fn {name}({params}) {ret} {{",
-                            vis = vis,
-                            name = name,
-                            params = params
-                                .iter()
-                                .map(|(name, ty)| format!("{}: {}", name, ty))
-                                .collect::<Vec<_>>()
-                                .join(", "),
-                            ret = ret_ty.clone().unwrap_or(ItemPath::Name("void".to_owned())),
-                        )
-                        .unwrap();
-                        for stmt in body {
-                            self.print_node(unit, *stmt, indent + 1, out, nested + 1);
-                        }
-                        writeln!(out, "{indent_str}}}").unwrap();
-                    }
-                    Item::FunctionDecl {
-                        vis,
-                        name,
-                        args,
-                        ret_ty,
-                    } => writeln!(
-                        out,
-                        "{indent_str}{}extern fn {}({}) -> {}",
-                        vis,
-                        name,
-                        args.iter()
-                            .map(|(name, ty)| format!("  {}: {}", name, ty))
-                            .collect::<Vec<_>>()
-                            .join(", "),
-                        ret_ty.clone().unwrap_or(ItemPath::Name("void".to_owned()))
-                    )
-                    .unwrap(),
-                    Item::StructDef { vis, name, fields } => writeln!(
-                        out,
-                        "{indent_str}{}struct {} {{\n{}\n{indent_str}}}",
-                        vis,
-                        name,
-                        fields
-                            .iter()
-                            .map(|v| format!("{}{}: {}", "  ".repeat(indent + 1), v.0, v.1))
-                            .collect::<Vec<_>>()
-                            .join(",\n"),
-                    )
-                    .unwrap(),
-                    Item::TypeDef { vis, name, ty } => {
-                        writeln!(out, "{indent_str}{}type {} = {}", vis, name, ty).unwrap()
-                    }
-                    Item::ConstDef {
-                        vis,
-                        name,
-                        ty,
-                        value: _,
-                    } => writeln!(out, "{indent_str}{}const {}: {}", vis, name, ty).unwrap(),
-                };
-                writeln!(out, "").unwrap();
-            }
-            #[allow(unreachable_patterns)]
-            _ => writeln!(out, "{}???", "  ".repeat(indent - 1)).unwrap(),
-        }
-    }
-
-    pub fn dbg_print(&self) {
-        let root = self.root;
-        let unit = self.units.get(root).unwrap();
-        let mut writer = String::new();
-        for member in unit.members.values().copied() {
-            self.print_node(root, member, 0, &mut writer, 0);
-        }
-        println!("{}", writer);
-    }
-}
-
-#[derive(Debug, PartialEq, Clone)]
-pub enum ItemPath {
-    /// Starting with root::
-    Absolute(Vec<String>),
-    /// Starting with self:: or nothing
-    Relative(Vec<String>),
-    /// Starting with :: followed by an external package name
-    External(Vec<String>),
-    /// Single identifier (name expected to be in scope)
-    Name(String),
-}
-
-impl Display for ItemPath {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            ItemPath::Absolute(path) => {
-                for (i, part) in path.iter().enumerate() {
-                    if i > 0 {
-                        write!(f, "::")?;
-                    }
-                    write!(f, "{}", part)?;
-                }
-            }
-            ItemPath::Relative(path) => {
-                for (i, part) in path.iter().enumerate() {
-                    if i > 0 {
-                        write!(f, "::")?;
-                    }
-                    write!(f, "{}", part)?;
-                }
-            }
-            ItemPath::External(path) => {
-                write!(f, "::")?;
-                for (i, part) in path.iter().enumerate() {
-                    if i > 0 {
-                        write!(f, "::")?;
-                    }
-                    write!(f, "{}", part)?;
-                }
-            }
-            ItemPath::Name(name) => write!(f, "{}", name)?,
-        }
-        Ok(())
-    }
-}
-
-/// Item path starting with root:: or :: (external)
-/// Guaranteed to be absolute
-#[derive(Debug, PartialEq, Eq, Hash)]
-pub enum AbsoluteItemPath {
-    Absolute(Vec<String>),
-    External(Vec<String>),
-}
-
-impl TryInto<AbsoluteItemPath> for ItemPath {
-    type Error = ();
-
-    fn try_into(self) -> Result<AbsoluteItemPath, Self::Error> {
-        match self {
-            ItemPath::Absolute(path) => Ok(AbsoluteItemPath::Absolute(path)),
-            ItemPath::External(path) => Ok(AbsoluteItemPath::External(path)),
-            _ => Err(()),
-        }
-    }
-}
-
-impl ItemPath {
-    pub fn name(&self) -> Option<&String> {
-        match self {
-            ItemPath::Absolute(path) => path.last(),
-            ItemPath::Relative(path) => path.last(),
-            ItemPath::External(path) => path.last(),
-            ItemPath::Name(name) => Some(name),
-        }
-    }
-
-    pub fn into_absolute(self) -> Option<AbsoluteItemPath> {
-        match self {
-            ItemPath::Absolute(path) => Some(AbsoluteItemPath::Absolute(path)),
-            ItemPath::External(path) => Some(AbsoluteItemPath::External(path)),
-            _ => None,
-        }
-    }
-
-    pub fn root(&self) -> Option<&String> {
-        match self {
-            ItemPath::Absolute(path) => path.first(),
-            ItemPath::Relative(path) => path.first(),
-            ItemPath::External(path) => path.first(),
-            ItemPath::Name(_) => None,
-        }
-    }
-
-    pub fn is_absolute(&self) -> bool {
-        match self {
-            ItemPath::Absolute(_) => true,
-            _ => false,
-        }
-    }
-
-    pub fn is_relative(&self) -> bool {
-        match self {
-            ItemPath::Relative(_) => true,
-            _ => false,
-        }
-    }
-
-    pub fn is_external(&self) -> bool {
-        match self {
-            ItemPath::External(_) => true,
-            _ => false,
-        }
-    }
-
-    pub fn is_name(&self) -> bool {
-        match self {
-            ItemPath::Name(_) => true,
-            _ => false,
-        }
-    }
-}
-
-/// Module-level items
-#[derive(Debug, PartialEq)]
-pub enum Item {
-    Submodule {
-        vis: Visibility,
-        name: ItemPath,
-        id: UnitId,
-    },
-    FunctionDef {
-        vis: Visibility,
-        name: ItemPath,
-        params: Vec<(String, ItemPath)>,
-        ret_ty: Option<ItemPath>,
-        body: Vec<NodeId>,
-    },
-    FunctionDecl {
-        vis: Visibility,
-        name: ItemPath,
-        args: Vec<(String, ItemPath)>,
-        ret_ty: Option<ItemPath>,
-    },
-    StructDef {
-        vis: Visibility,
-        name: ItemPath,
-        fields: Vec<(String, ItemPath)>,
-    },
-    TypeDef {
-        vis: Visibility,
-        name: ItemPath,
-        ty: ItemPath,
-    },
-    ConstDef {
-        vis: Visibility,
-        name: String,
-        ty: ItemPath,
-        value: NodeId,
-    },
-}
-
-#[derive(Debug, PartialEq)]
-pub enum UnaryOp {
-    Neg,
-    Not,
-    Deref,
-    Ref,
-}
-
-impl Display for UnaryOp {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "{}",
-            match self {
-                UnaryOp::Neg => "-",
-                UnaryOp::Not => "!",
-                UnaryOp::Deref => "*",
-                UnaryOp::Ref => "&",
-            }
-        )
-    }
-}
-
-impl Display for BinaryOp {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "{}",
-            match self {
-                BinaryOp::Add => "+",
-                BinaryOp::Sub => "-",
-                BinaryOp::Mul => "*",
-                BinaryOp::Div => "/",
-                BinaryOp::Mod => "%",
-                BinaryOp::And => "&&",
-                BinaryOp::Or => "||",
-                BinaryOp::Eq => "==",
-                BinaryOp::Neq => "!=",
-                BinaryOp::Lt => "<",
-                BinaryOp::Gt => ">",
-                BinaryOp::Leq => "<=",
-                BinaryOp::Geq => ">=",
-                BinaryOp::BitwiseAnd => "&",
-                BinaryOp::BitwiseOr => "|",
-                BinaryOp::Xor => "^",
-                BinaryOp::ShiftLeft => "<<",
-                BinaryOp::ShiftRight => ">>",
-            }
-        )
-    }
-}
-
-impl Display for AssignOp {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            AssignOp::Assign => write!(f, "="),
-            AssignOp::AddAssign => write!(f, "+="),
-            AssignOp::SubAssign => write!(f, "-="),
-            AssignOp::MulAssign => write!(f, "*="),
-            AssignOp::DivAssign => write!(f, "/="),
-            AssignOp::ModAssign => write!(f, "%="),
-            AssignOp::AndAssign => write!(f, "&="),
-            AssignOp::OrAssign => write!(f, "|="),
-            AssignOp::XorAssign => write!(f, "^="),
-            AssignOp::ShlAssign => write!(f, "<<="),
-            AssignOp::ShrAssign => write!(f, ">>="),
-        }
-    }
-}
-
-impl TryFrom<&Symbol> for UnaryOp {
-    type Error = anyhow::Error;
-
-    fn try_from(value: &Symbol) -> std::result::Result<Self, Self::Error> {
-        match value {
-            Symbol::Arithmetic(Arithmetic::Minus) => Ok(UnaryOp::Neg),
-            Symbol::Logical(Logical::Not) => Ok(UnaryOp::Not),
-            Symbol::Bitwise(Bitwise::And) => Ok(UnaryOp::Ref),
-            Symbol::Arithmetic(Arithmetic::Times) => Ok(UnaryOp::Deref),
-            igl => Err(anyhow::anyhow!("Invalid unary operator {:?}", igl)),
-        }
-    }
-}
-
-#[derive(Debug, PartialEq)]
-pub enum BinaryOp {
-    Add,
-    Sub,
-    Mul,
-    Div,
-    Mod,
-    And,
-    Or,
-    Eq,
-    Neq,
-    Lt,
-    Gt,
-    Leq,
-    Geq,
-    Xor,
-    BitwiseAnd,
-    BitwiseOr,
-    ShiftLeft,
-    ShiftRight,
-}
-
-impl BinaryOp {
-    pub fn op_type(&self) -> OperatorType {
-        use OperatorType::*;
-        match self {
-            BinaryOp::Add | BinaryOp::Sub => Additive,
-            BinaryOp::Mul | BinaryOp::Mod | BinaryOp::Div => Multiplicative,
-            BinaryOp::And => LogicalAnd,
-            BinaryOp::Or => LogicalOr,
-            BinaryOp::Eq => Equality,
-            BinaryOp::Neq => Equality,
-            BinaryOp::Lt => Relational,
-            BinaryOp::Gt => Relational,
-            BinaryOp::Leq => Relational,
-            BinaryOp::Geq => Relational,
-            BinaryOp::Xor => Relational,
-            BinaryOp::BitwiseAnd => Bitwise,
-            BinaryOp::BitwiseOr => Bitwise,
-            BinaryOp::ShiftLeft => Bitwise,
-            BinaryOp::ShiftRight => Bitwise,
-        }
-    }
-}
-
-impl TryFrom<&Token> for BinaryOp {
-    type Error = anyhow::Error;
-
-    fn try_from(value: &Token) -> std::result::Result<Self, Self::Error> {
-        match value {
-            Token::Symbol(s) => Self::try_from(s),
-            _ => Err(anyhow::anyhow!("Invalid binary operator {:?}", value)),
-        }
-    }
-}
-
-impl TryFrom<&Symbol> for BinaryOp {
-    type Error = anyhow::Error;
-
-    fn try_from(value: &Symbol) -> std::result::Result<Self, Self::Error> {
-        match value {
-            Symbol::Arithmetic(Arithmetic::Plus) => Ok(BinaryOp::Add),
-            Symbol::Arithmetic(Arithmetic::Minus) => Ok(BinaryOp::Sub),
-            Symbol::Arithmetic(Arithmetic::Times) => Ok(BinaryOp::Mul),
-            Symbol::Arithmetic(Arithmetic::Divide) => Ok(BinaryOp::Div),
-            Symbol::Arithmetic(Arithmetic::Mod) => Ok(BinaryOp::Mod),
-            Symbol::Logical(Logical::And) => Ok(BinaryOp::And),
-            Symbol::Logical(Logical::Or) => Ok(BinaryOp::Or),
-            Symbol::Bitwise(Bitwise::Or) => Ok(BinaryOp::BitwiseOr),
-            Symbol::Bitwise(Bitwise::Xor) => Ok(BinaryOp::Xor),
-            Symbol::Bitwise(Bitwise::And) => Ok(BinaryOp::BitwiseAnd),
-            Symbol::Bitwise(Bitwise::ShiftLeft) => Ok(BinaryOp::ShiftLeft),
-            Symbol::Bitwise(Bitwise::ShiftRight) => Ok(BinaryOp::ShiftRight),
-            Symbol::Comparison(Comparison::Equal) => Ok(BinaryOp::Eq),
-            Symbol::Comparison(Comparison::NotEqual) => Ok(BinaryOp::Neq),
-            Symbol::Comparison(Comparison::LessThan) => Ok(BinaryOp::Lt),
-            Symbol::Comparison(Comparison::GreaterThan) => Ok(BinaryOp::Gt),
-            Symbol::Comparison(Comparison::LessThanOrEqual) => Ok(BinaryOp::Leq),
-            Symbol::Comparison(Comparison::GreaterThanOrEqual) => Ok(BinaryOp::Geq),
-            igl => Err(anyhow::anyhow!("Invalid binary operator {:?}", igl)),
-        }
-    }
-}
-
-#[derive(Debug, PartialEq)]
-pub enum AssignOp {
-    Assign,
-    AddAssign,
-    SubAssign,
-    MulAssign,
-    DivAssign,
-    ModAssign,
-    AndAssign,
-    OrAssign,
-    XorAssign,
-    ShlAssign,
-    ShrAssign,
-}
-
-#[derive(Debug, PartialEq)]
-pub enum Expr {
-    Literal(Literal),
-    Ident(String),
-    StructInit {
-        ty: ItemPath,
-        fields: Vec<(String, NodeId)>,
-    },
-    Call {
-        callee: NodeId,
-        args: Vec<NodeId>,
-    },
-    MemberAccess {
-        object: NodeId,
-        member: NodeId,
-        computed: bool,
-    },
-    UnaryOp {
-        op: UnaryOp,
-        operand: NodeId,
-    },
-    BinaryOp {
-        op: BinaryOp,
-        lhs: NodeId,
-        rhs: NodeId,
-    },
-    AssignmentOp {
-        lhs: NodeId,
-        op: AssignOp,
-        rhs: NodeId,
-    },
-    Cast {
-        ty: ItemPath,
-        expr: NodeId,
-    },
-    Block {
-        stmts: Vec<NodeId>,
-    },
-    If {
-        cond: NodeId,
-        then: NodeId,
-        r#else: Option<NodeId>,
-    },
-    While {
-        cond: NodeId,
-        body: NodeId,
-    },
-    Loop {
-        body: NodeId,
-    },
-    ScopeResolution {
-        object: NodeId,
-        member: NodeId,
-    },
-}
-
-#[derive(Debug, PartialEq)]
-pub enum Stmt {
-    Expr(NodeId),
-    Let {
-        name: String,
-        ty: ItemPath,
-        value: Option<NodeId>,
-    },
-    Break {
-        value: Option<NodeId>,
-    },
-    Return {
-        value: Option<NodeId>,
-    },
-    Continue,
 }
 
 #[derive(Debug, PartialEq)]
 pub enum ASTNode {
-    Item(Item),
-    Expr(Expr),
-    Stmt(Stmt),
+    Item(item::Item),
+    Expr(expr::Expr),
+    Stmt(stmt::Stmt),
 }
 
 pub struct Parser<'a> {
@@ -802,17 +81,9 @@ impl<'a> Parser<'a> {
 
     pub fn parse_unit(&mut self, name: String, parent: Option<UnitId>) -> Result<UnitId> {
         debug!("parse_unit");
-        let root = parent.is_none();
-        let unit = Unit {
-            name,
-            parent,
-            members: HashMap::new(),
-            ast_nodes: SlotMap::with_key(),
-        };
-        let unit_id = self.package.units.insert(unit);
-        if root {
-            self.package.root = unit_id;
-        }
+        let is_root = parent.is_none();
+        let unit_id = self.package.add_unit(Unit::new(name, parent));
+        is_root.then(|| self.package.set_root(unit_id));
         self.skip_whitespace();
         self.parse_unit_body(unit_id)?;
         Ok(unit_id)
@@ -869,22 +140,21 @@ impl<'a> Parser<'a> {
 
         let ty = self.parse_path()?;
 
-        let unit: &mut Unit = self
-            .package
-            .units
-            .get_mut(unit_id)
-            .ok_or(anyhow::anyhow!("unit not found"))?;
-
-        let id = unit.ast_nodes.insert(ASTNode::Item(Item::TypeDef {
-            vis: if public {
-                Visibility::Public
-            } else {
-                Visibility::Private
-            },
-            name: ItemPath::Name(name.clone()),
-            ty,
-        }));
-        unit.members.insert(name, id);
+        self.package
+            .unit_mut(unit_id)
+            .ok_or(anyhow::anyhow!("unit not found"))?
+            .new_item(
+                name.clone(),
+                Item::TypeDef {
+                    vis: if public {
+                        Visibility::Public
+                    } else {
+                        Visibility::Private
+                    },
+                    name: ItemPath::Name(name),
+                    ty,
+                },
+            );
 
         Ok(())
     }
@@ -963,9 +233,12 @@ impl<'a> Parser<'a> {
             )))?;
             let ty = self.parse_path()?;
             fields.push((name, ty));
-            if let Ok(_) = self.expect(Token::Symbol(lex::Symbol::Punctuation(
-                lex::Punctuation::Comma,
-            ))) {
+            if self
+                .expect(Token::Symbol(lex::Symbol::Punctuation(
+                    lex::Punctuation::Comma,
+                )))
+                .is_ok()
+            {
                 continue;
             } else {
                 break;
@@ -975,18 +248,17 @@ impl<'a> Parser<'a> {
             lex::Punctuation::CloseBrace,
         )))?;
 
-        let unit: &mut Unit = self
-            .package
-            .units
-            .get_mut(unit_id)
-            .ok_or(anyhow::anyhow!("unit not found"))?;
-
-        let id = unit.ast_nodes.insert(ASTNode::Item(Item::StructDef {
-            vis: Self::vis(public),
-            name: ItemPath::Name(name.clone()),
-            fields,
-        }));
-        unit.members.insert(name, id);
+        self.package
+            .unit_mut(unit_id)
+            .ok_or(anyhow::anyhow!("unit not found"))?
+            .new_item(
+                name.clone(),
+                Item::StructDef {
+                    vis: Self::vis(public),
+                    name: ItemPath::Name(name),
+                    fields,
+                },
+            );
         self.skip_whitespace();
 
         Ok(())
@@ -1007,20 +279,17 @@ impl<'a> Parser<'a> {
             return Err(anyhow::anyhow!("expected identifier"));
         };
 
-        let unit = Unit {
-            name: name.clone(),
-            parent: Some(unit_id),
-            ast_nodes: SlotMap::with_key(),
-            members: HashMap::new(),
-        };
-        let new_unit = self.package.units.insert(unit);
-        let parent_unit = self.package.units.get_mut(unit_id).unwrap();
-        let node = parent_unit.ast_nodes.insert(ASTNode::Item(Item::Submodule {
-            vis: Self::vis(public),
-            name: ItemPath::Name(name.clone()),
-            id: new_unit,
-        }));
-        parent_unit.members.insert(name, node);
+        let unit = Unit::new(name.clone(), Some(unit_id));
+        let new_unit = self.package.add_unit(unit);
+        let parent_unit = self.package.unit_mut(unit_id).unwrap();
+        parent_unit.new_item(
+            name.clone(),
+            Item::Submodule {
+                vis: Self::vis(public),
+                name: ItemPath::Name(name),
+                id: new_unit,
+            },
+        );
 
         self.expect(Token::Symbol(lex::Symbol::Punctuation(
             lex::Punctuation::OpenBrace,
@@ -1120,9 +389,12 @@ impl<'a> Parser<'a> {
             params.push((name, ty));
 
             self.skip_whitespace();
-            if let Ok(_) = self.expect(Token::Symbol(lex::Symbol::Punctuation(
-                lex::Punctuation::Comma,
-            ))) {
+            if self
+                .expect(Token::Symbol(lex::Symbol::Punctuation(
+                    lex::Punctuation::Comma,
+                )))
+                .is_ok()
+            {
                 continue;
             } else {
                 self.expect(Token::Symbol(lex::Symbol::Punctuation(
@@ -1151,19 +423,19 @@ impl<'a> Parser<'a> {
         self.expect(Token::Symbol(lex::Symbol::Punctuation(
             lex::Punctuation::CloseBrace,
         )))?;
-        let unit: &mut Unit = self
-            .package
-            .units
-            .get_mut(unit_id)
-            .ok_or(anyhow::anyhow!("unit not found"))?;
-        let id = unit.ast_nodes.insert(ASTNode::Item(Item::FunctionDef {
-            vis,
-            name: ItemPath::Name(name.clone()),
-            params,
-            ret_ty,
-            body,
-        }));
-        unit.members.insert(name, id);
+        self.package
+            .unit_mut(unit_id)
+            .ok_or(anyhow::anyhow!("unit not found"))?
+            .new_item(
+                name.clone(),
+                Item::FunctionDef {
+                    vis,
+                    name: ItemPath::Name(name),
+                    params,
+                    ret_ty,
+                    body,
+                },
+            );
         self.skip_whitespace();
 
         Ok(())
@@ -1220,16 +492,15 @@ impl<'a> Parser<'a> {
         } else {
             None
         };
-        let unit: &mut Unit = self
+        let id = self
             .package
-            .units
-            .get_mut(unit_id)
-            .ok_or(anyhow::anyhow!("unit not found"))?;
-        let id = unit.ast_nodes.insert(ASTNode::Stmt(Stmt::Let {
-            name,
-            ty,
-            value: init,
-        }));
+            .unit_mut(unit_id)
+            .ok_or(anyhow::anyhow!("unit not found"))?
+            .new_stmt(Stmt::Let {
+                name,
+                ty,
+                value: init,
+            });
         Ok(id)
     }
 
@@ -1240,21 +511,17 @@ impl<'a> Parser<'a> {
             self.advance();
             Ok(self
                 .package
-                .units
-                .get_mut(unit_id)
+                .unit_mut(unit_id)
                 .ok_or(anyhow::anyhow!("unit not found"))?
-                .ast_nodes
-                .insert(ASTNode::Stmt(Stmt::Return { value: None })))
+                .new_stmt(Stmt::Return { value: None }))
         } else {
             let value = self.parse_expr(unit_id)?;
             self.expect(Token::Newline)?;
             Ok(self
                 .package
-                .units
-                .get_mut(unit_id)
+                .unit_mut(unit_id)
                 .ok_or(anyhow::anyhow!("unit not found"))?
-                .ast_nodes
-                .insert(ASTNode::Stmt(Stmt::Return { value: Some(value) })))
+                .new_stmt(Stmt::Return { value: Some(value) }))
         }
     }
 
@@ -1271,20 +538,16 @@ impl<'a> Parser<'a> {
             self.advance();
             return Ok(self
                 .package
-                .units
-                .get_mut(unit_id)
+                .unit_mut(unit_id)
                 .ok_or(anyhow::anyhow!("unit not found"))?
-                .ast_nodes
-                .insert(ASTNode::Stmt(Stmt::Break { value: None })));
+                .new_stmt(Stmt::Break { value: None }));
         }
         let expr = self.parse_expr(unit_id)?;
         Ok(self
             .package
-            .units
-            .get_mut(unit_id)
+            .unit_mut(unit_id)
             .ok_or(anyhow::anyhow!("unit not found"))?
-            .ast_nodes
-            .insert(ASTNode::Stmt(Stmt::Break { value: Some(expr) })))
+            .new_stmt(Stmt::Break { value: Some(expr) }))
     }
 
     fn parse_continue_stmt(&mut self, unit_id: UnitId) -> Result<NodeId> {
@@ -1292,11 +555,9 @@ impl<'a> Parser<'a> {
         self.expect(Token::Keyword(Keyword::Continue))?;
         Ok(self
             .package
-            .units
-            .get_mut(unit_id)
+            .unit_mut(unit_id)
             .ok_or(anyhow::anyhow!("unit not found"))?
-            .ast_nodes
-            .insert(ASTNode::Stmt(Stmt::Continue)))
+            .new_stmt(Stmt::Continue))
     }
 
     fn parse_expr(&mut self, unit_id: UnitId) -> Result<NodeId> {
@@ -1330,11 +591,9 @@ impl<'a> Parser<'a> {
         };
         Ok(self
             .package
-            .units
-            .get_mut(unit_id)
+            .unit_mut(unit_id)
             .ok_or(anyhow::anyhow!("unit not found"))?
-            .ast_nodes
-            .insert(ASTNode::Expr(Expr::If { cond, then, r#else })))
+            .new_expr(Expr::If { cond, then, r#else }))
     }
 
     fn parse_while_expr(&mut self, unit_id: UnitId) -> std::result::Result<NodeId, anyhow::Error> {
@@ -1344,11 +603,9 @@ impl<'a> Parser<'a> {
         let body = self.parse_expr(unit_id)?;
         Ok(self
             .package
-            .units
-            .get_mut(unit_id)
+            .unit_mut(unit_id)
             .ok_or(anyhow::anyhow!("unit not found"))?
-            .ast_nodes
-            .insert(ASTNode::Expr(Expr::While { cond, body })))
+            .new_expr(Expr::While { cond, body }))
     }
 
     fn parse_for_expr(&self, _unit_id: UnitId) -> std::result::Result<NodeId, anyhow::Error> {
@@ -1362,11 +619,9 @@ impl<'a> Parser<'a> {
         let block = self.parse_block_expr(unit_id)?;
         Ok(self
             .package
-            .units
-            .get_mut(unit_id)
+            .unit_mut(unit_id)
             .ok_or(anyhow::anyhow!("unit not found"))?
-            .ast_nodes
-            .insert(ASTNode::Expr(Expr::Loop { body: block })))
+            .new_expr(Expr::Loop { body: block }))
     }
 
     fn parse_block_expr(&mut self, unit_id: UnitId) -> Result<NodeId> {
@@ -1376,11 +631,9 @@ impl<'a> Parser<'a> {
         self.expect(Token::Symbol(Symbol::Punctuation(Punctuation::CloseBrace)))?;
         Ok(self
             .package
-            .units
-            .get_mut(unit_id)
+            .unit_mut(unit_id)
             .ok_or(anyhow::anyhow!("unit not found"))?
-            .ast_nodes
-            .insert(ASTNode::Expr(Expr::Block { stmts: block })))
+            .new_expr(Expr::Block { stmts: block }))
     }
 
     fn binary_expr_helper<F>(
@@ -1409,11 +662,9 @@ impl<'a> Parser<'a> {
             let rhs = builder(self, unit_id)?;
             lhs = self
                 .package
-                .units
-                .get_mut(unit_id)
+                .unit_mut(unit_id)
                 .unwrap()
-                .ast_nodes
-                .insert(ASTNode::Expr(Expr::BinaryOp { op, lhs, rhs }));
+                .new_expr(Expr::BinaryOp { op, lhs, rhs });
         }
         Ok(lhs)
     }
@@ -1485,11 +736,9 @@ impl<'a> Parser<'a> {
                 let op = UnaryOp::try_from(sym)?;
                 Ok(self
                     .package
-                    .units
-                    .get_mut(unit_id)
+                    .unit_mut(unit_id)
                     .ok_or(anyhow::anyhow!("unit {unit_id:?} not found"))?
-                    .ast_nodes
-                    .insert(ASTNode::Expr(Expr::UnaryOp { op, operand })))
+                    .new_expr(Expr::UnaryOp { op, operand }))
             }
             _ => self.parse_call_member_expr(unit_id),
         }
@@ -1515,11 +764,9 @@ impl<'a> Parser<'a> {
         let args = self.parse_fn_args(unit_id)?;
         Ok(self
             .package
-            .units
-            .get_mut(unit_id)
+            .unit_mut(unit_id)
             .unwrap()
-            .ast_nodes
-            .insert(ASTNode::Expr(Expr::Call { callee, args })))
+            .new_expr(Expr::Call { callee, args }))
     }
 
     fn parse_fn_args(&mut self, unit_id: UnitId) -> Result<Vec<NodeId>> {
@@ -1569,26 +816,22 @@ impl<'a> Parser<'a> {
                     let member = self.parse_identifier(unit_id)?;
                     object = self
                         .package
-                        .units
-                        .get_mut(unit_id)
+                        .unit_mut(unit_id)
                         .ok_or(anyhow::anyhow!("unit {unit_id:?} not found"))?
-                        .ast_nodes
-                        .insert(ASTNode::Expr(Expr::MemberAccess {
+                        .new_expr(Expr::MemberAccess {
                             object,
                             member,
                             computed: false,
-                        }));
+                        });
                 }
                 Punctuation::DoubleColon => {
                     scope_resolution = true;
                     let member = self.parse_identifier(unit_id)?;
                     object = self
                         .package
-                        .units
-                        .get_mut(unit_id)
+                        .unit_mut(unit_id)
                         .ok_or(anyhow::anyhow!("unit {unit_id:?} not found"))?
-                        .ast_nodes
-                        .insert(ASTNode::Expr(Expr::ScopeResolution { object, member }));
+                        .new_expr(Expr::ScopeResolution { object, member });
                 }
                 Punctuation::OpenBracket => {
                     if scope_resolution {
@@ -1602,15 +845,13 @@ impl<'a> Parser<'a> {
                     )))?;
                     object = self
                         .package
-                        .units
-                        .get_mut(unit_id)
+                        .unit_mut(unit_id)
                         .ok_or(anyhow::anyhow!("unit {unit_id:?} not found"))?
-                        .ast_nodes
-                        .insert(ASTNode::Expr(Expr::MemberAccess {
+                        .new_expr(Expr::MemberAccess {
                             object,
                             member,
                             computed: true,
-                        }));
+                        });
                 }
                 _ => unreachable!(),
             }
@@ -1651,11 +892,9 @@ impl<'a> Parser<'a> {
         match self.advance().map(|c| c.value.clone()) {
             Some(Token::Ident(ident)) => Ok(self
                 .package
-                .units
-                .get_mut(unit_id)
+                .unit_mut(unit_id)
                 .ok_or(anyhow::anyhow!("unit {unit_id:?} not found"))?
-                .ast_nodes
-                .insert(ASTNode::Expr(Expr::Ident(ident)))),
+                .new_expr(Expr::Ident(ident))),
             _ => Err(anyhow::anyhow!("expected identifier")),
         }
     }
@@ -1681,11 +920,9 @@ impl<'a> Parser<'a> {
         match self.advance().map(|c| c.value.clone()) {
             Some(Token::Literal(lit)) => Ok(self
                 .package
-                .units
-                .get_mut(unit_id)
+                .unit_mut(unit_id)
                 .ok_or(anyhow::anyhow!("unit {unit_id:?} not found"))?
-                .ast_nodes
-                .insert(ASTNode::Expr(Expr::Literal(lit)))),
+                .new_expr(Expr::Literal(lit))),
             _ => Err(anyhow::anyhow!("expected literal")),
         }
     }
@@ -1701,11 +938,9 @@ impl<'a> Parser<'a> {
             let rhs = self.parse_assignment(unit_id)?;
             Ok(self
                 .package
-                .units
-                .get_mut(unit_id)
+                .unit_mut(unit_id)
                 .unwrap()
-                .ast_nodes
-                .insert(ASTNode::Expr(Expr::AssignmentOp {
+                .new_expr(Expr::AssignmentOp {
                     op: match op {
                         Assignment::Assign => AssignOp::Assign,
                         Assignment::AddAssign => AssignOp::AddAssign,
@@ -1721,7 +956,7 @@ impl<'a> Parser<'a> {
                     },
                     lhs,
                     rhs,
-                })))
+                }))
         } else {
             Ok(lhs)
         }

@@ -1,3 +1,4 @@
+use anyhow::Result;
 use std::hash::Hash;
 use std::path::PathBuf;
 
@@ -164,14 +165,14 @@ impl Token {
     pub fn same_kind(&self, other: &Self) -> bool {
         match (self, other) {
             (Token::Keyword(l), Token::Keyword(r)) => l == r,
-            (Token::Literal(l), Token::Literal(r)) => match (l, r) {
-                (Literal::Int(_), Literal::Int(_)) => true,
-                (Literal::Float(_), Literal::Float(_)) => true,
-                (Literal::String(_), Literal::String(_)) => true,
-                (Literal::Char(_), Literal::Char(_)) => true,
-                (Literal::Bool(_), Literal::Bool(_)) => true,
-                _ => false,
-            },
+            (Token::Literal(l), Token::Literal(r)) => matches!(
+                (l, r),
+                (Literal::Int(_), Literal::Int(_))
+                    | (Literal::Float(_), Literal::Float(_))
+                    | (Literal::String(_), Literal::String(_))
+                    | (Literal::Char(_), Literal::Char(_))
+                    | (Literal::Bool(_), Literal::Bool(_))
+            ),
             (Token::Symbol(l), Token::Symbol(r)) => l == r,
             (Token::Ident(_), Token::Ident(_)) => true,
             (Token::Visibility(_), Token::Visibility(_)) => true,
@@ -234,10 +235,7 @@ impl Token {
     }
 
     pub fn is_assignment_op(&self) -> bool {
-        match self {
-            Token::Symbol(Symbol::Assignment(_)) => true,
-            _ => false,
-        }
+        matches!(self, Token::Symbol(Symbol::Assignment(_)))
     }
 
     pub fn op_type(&self) -> Option<OperatorType> {
@@ -445,30 +443,17 @@ impl IntoStream<Token, Span> for Vec<Spanned<Token>> {
 
 pub type Sources = Arc<RwLock<FileCache>>;
 
-pub fn lex_str(
-    source: &str,
-    source_id: impl AsRef<str>,
-) -> Result<
-    (
-        Option<Vec<Spanned<Token>>>,
-        Vec<chumsky::error::Simple<char>>,
-    ),
-    anyhow::Error,
-> {
+pub type LexerOutput = (
+    Option<Vec<Spanned<Token>>>,
+    Vec<chumsky::error::Simple<char>>,
+);
+
+pub fn lex_str(source: &str, source_id: impl AsRef<str>) -> Result<LexerOutput> {
     let source = Source::from(source);
     lex(&source, PathBuf::from(source_id.as_ref()).as_path())
 }
 
-pub fn lex_file(
-    files: Sources,
-    path: &Path,
-) -> Result<
-    (
-        Option<Vec<Spanned<Token>>>,
-        Vec<chumsky::error::Simple<char>>,
-    ),
-    anyhow::Error,
-> {
+pub fn lex_file(files: Sources, path: &Path) -> Result<LexerOutput, anyhow::Error> {
     let path = path.canonicalize().map_err(|e| anyhow::anyhow!("{}", e))?;
     let mut files = files
         .write()
@@ -479,7 +464,7 @@ pub fn lex_file(
     lex(source, path.as_ref())
 }
 
-pub fn kw<'a>(source_id: &Arc<PathBuf>) -> impl Parser<char, Spanned<Token>, Error = Simple<char>> {
+pub fn kw(source_id: &Arc<PathBuf>) -> impl Parser<char, Spanned<Token>, Error = Simple<char>> {
     let source_id = source_id.clone();
     choice((
         keyword("fn").map(|_| Keyword::Fn),
@@ -726,7 +711,7 @@ pub fn token(s: &Arc<PathBuf>) -> impl Parser<char, Spanned<Token>, Error = Simp
 
 pub fn lexer(s: &Arc<PathBuf>) -> impl Parser<char, Vec<Spanned<Token>>, Error = Simple<char>> {
     let comment = just("//").then(none_of('\n').repeated()).padded();
-    token(&s)
+    token(s)
         .padded_by(comment.repeated())
         .padded()
         // If we encounter an error, skip and attempt to lex the next character as a token instead
@@ -735,16 +720,7 @@ pub fn lexer(s: &Arc<PathBuf>) -> impl Parser<char, Vec<Spanned<Token>>, Error =
         .then_ignore(end())
 }
 
-pub fn lex(
-    source: &Source,
-    source_id: &Path,
-) -> Result<
-    (
-        Option<Vec<Spanned<Token>>>,
-        Vec<chumsky::error::Simple<char>>,
-    ),
-    anyhow::Error,
-> {
+pub fn lex(source: &Source, source_id: &Path) -> Result<LexerOutput, anyhow::Error> {
     let source_id = Arc::new(source_id.to_owned());
 
     let source = source.chars().collect::<String>();

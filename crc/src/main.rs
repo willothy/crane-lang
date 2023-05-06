@@ -2,7 +2,7 @@ use ariadne::Span;
 use crane_lex as lex;
 use crane_parse as parse;
 
-use parse::Package;
+use parse::package::Package;
 
 fn main() -> anyhow::Result<()> {
     env_logger::init();
@@ -37,7 +37,7 @@ fn main() -> anyhow::Result<()> {
 
     let mut parser = parse::Parser::new(tokens, &mut package);
     let parsed = parser.parse_unit("bingus".into(), None)?;
-    let unit = package.get_unit(parsed).unwrap();
+    let unit = package.unit(parsed).unwrap();
 
     println!("{:#?}", unit);
     package.dbg_print();

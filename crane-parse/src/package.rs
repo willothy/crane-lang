@@ -1,0 +1,335 @@
+use std::fmt::Write;
+
+use crane_lex::Literal;
+use slotmap::SlotMap;
+
+use crate::{
+    path::ItemPath,
+    unit::{Unit, UnitId},
+    ASTNode, Expr, Item, NodeId, Stmt,
+};
+
+#[derive(Debug)]
+pub struct Package {
+    units: SlotMap<UnitId, Unit>,
+    root: UnitId,
+}
+
+impl Default for Package {
+    fn default() -> Self {
+        Self {
+            units: SlotMap::with_key(),
+            root: UnitId::default(),
+        }
+    }
+}
+
+impl Package {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn name(&self) -> &str {
+        self.units.get(self.root).unwrap().name()
+    }
+
+    pub fn unit(&self, id: UnitId) -> Option<&Unit> {
+        self.units.get(id)
+    }
+
+    pub fn unit_mut(&mut self, id: UnitId) -> Option<&mut Unit> {
+        self.units.get_mut(id)
+    }
+
+    pub fn add_unit(&mut self, unit: Unit) -> UnitId {
+        self.units.insert(unit)
+    }
+
+    pub fn get_root(&self) -> UnitId {
+        self.root
+    }
+
+    pub fn set_root(&mut self, root: UnitId) {
+        self.root = root;
+    }
+
+    fn get_parent_name(&self, unit_id: UnitId) -> Option<(UnitId, &str)> {
+        let unit = self.units.get(unit_id).unwrap();
+        if let Some(parent) = unit.parent() {
+            return self.units.get(parent).map(|u| (parent, u.name()));
+        }
+        None
+    }
+
+    fn canonicalize_path(&self, unit_id: UnitId, path: ItemPath) -> ItemPath {
+        match path {
+            ItemPath::Name(name) => {
+                let mut new_path = vec![name];
+                let mut id = unit_id;
+                while let Some((new_id, parent)) = self.get_parent_name(id) {
+                    id = new_id;
+                    new_path.push(parent.to_owned());
+                }
+                new_path.reverse();
+                ItemPath::Absolute(new_path)
+            }
+            path => path,
+        }
+    }
+
+    pub fn print_node(
+        &self,
+        unit: UnitId,
+        node: NodeId,
+        indent: usize,
+        out: &mut dyn Write,
+        nested: usize,
+    ) {
+        let node = self.units.get(unit).unwrap().get_node(node).unwrap();
+        let indent_str = "  ".repeat(indent);
+        match node {
+            ASTNode::Expr(e) => match e {
+                Expr::Literal(l) => match l {
+                    Literal::Int(i) => write!(out, "{i}").unwrap(),
+                    Literal::Float(f) => write!(out, "{f}").unwrap(),
+                    Literal::String(s) => write!(out, "\"{s}\"").unwrap(),
+                    Literal::Char(c) => write!(out, "'{c}'").unwrap(),
+                    Literal::Bool(b) => write!(out, "{b}").unwrap(),
+                },
+                Expr::Ident(n) => write!(out, "{n}").unwrap(),
+                Expr::StructInit { ty, fields } => {
+                    write!(out, "{ty} {{", ty = ty).unwrap();
+                    for (name, expr) in fields {
+                        write!(out, "{name}: ", name = name).unwrap();
+                        self.print_node(unit, *expr, indent, out, nested + 1);
+                        write!(out, ", ").unwrap();
+                    }
+                    write!(out, "}}").unwrap();
+                }
+                Expr::Call { callee, args } => {
+                    self.print_node(unit, *callee, indent, out, nested + 1);
+                    write!(out, "(").unwrap();
+                    for arg in args {
+                        self.print_node(unit, *arg, indent, out, nested + 1);
+                        write!(out, ", ").unwrap();
+                    }
+                    write!(out, ")").unwrap();
+                }
+                Expr::MemberAccess {
+                    object,
+                    member,
+                    computed,
+                } => {
+                    self.print_node(unit, *object, indent, out, nested + 1);
+                    if *computed {
+                        write!(out, "[").unwrap();
+                        self.print_node(unit, *member, indent, out, nested + 1);
+                        write!(out, "]").unwrap();
+                    } else {
+                        write!(out, ".").unwrap();
+                        self.print_node(unit, *member, indent, out, nested + 1);
+                    }
+                }
+                Expr::UnaryOp { op, operand } => {
+                    write!(out, "{op}", op = op).unwrap();
+                    self.print_node(unit, *operand, indent, out, nested + 1);
+                }
+                Expr::BinaryOp { op, lhs, rhs } => {
+                    self.print_node(unit, *lhs, indent, out, nested + 1);
+                    write!(out, " {op} ", op = op).unwrap();
+                    self.print_node(unit, *rhs, indent, out, nested + 1);
+                }
+                Expr::AssignmentOp { lhs, op, rhs } => {
+                    if nested <= 3 {
+                        write!(out, "{}", "  ".repeat(indent - 1)).unwrap();
+                    }
+                    self.print_node(unit, *lhs, indent, out, nested + 1);
+                    write!(out, " {op} ", op = op).unwrap();
+                    self.print_node(unit, *rhs, indent, out, nested + 1);
+                }
+                Expr::Cast { ty, expr } => {
+                    write!(out, "({ty})", ty = ty).unwrap();
+                    self.print_node(unit, *expr, indent, out, nested + 1);
+                }
+                Expr::Block { stmts } => {
+                    for stmt in stmts {
+                        self.print_node(unit, *stmt, indent + 1, out, nested + 1);
+                    }
+                }
+                Expr::If { cond, then, r#else } => {
+                    writeln!(out, "{indent_str}if (", indent_str = indent_str).unwrap();
+                    self.print_node(unit, *cond, indent + 1, out, nested + 1);
+                    writeln!(out, ") {{").unwrap();
+                    self.print_node(unit, *then, indent + 1, out, nested + 1);
+                    writeln!(out, "{indent_str}}}", indent_str = indent_str).unwrap();
+                    if let Some(r#else) = r#else {
+                        writeln!(out, "{indent_str}else {{", indent_str = indent_str).unwrap();
+                        self.print_node(unit, *r#else, indent + 1, out, nested + 1);
+                        writeln!(out, "\n{indent_str}}}", indent_str = indent_str).unwrap();
+                    }
+                }
+                Expr::While { cond, body } => {
+                    writeln!(out, "{indent_str}while (", indent_str = indent_str).unwrap();
+                    self.print_node(unit, *cond, indent + 1, out, nested + 1);
+                    writeln!(out, ") {{").unwrap();
+                    self.print_node(unit, *body, indent + 1, out, nested + 1);
+                    writeln!(out, "\n{indent_str}}}", indent_str = indent_str).unwrap();
+                }
+                Expr::Loop { body } => {
+                    writeln!(out, "{indent_str}loop {{", indent_str = indent_str).unwrap();
+                    self.print_node(unit, *body, indent + 1, out, nested + 1);
+                    writeln!(out, "\n{indent_str}}}", indent_str = indent_str).unwrap();
+                }
+                Expr::ScopeResolution { object, member } => {
+                    self.print_node(unit, *object, indent, out, nested + 1);
+                    write!(out, "::").unwrap();
+                    self.print_node(unit, *member, indent, out, nested + 1);
+                }
+            },
+            ASTNode::Stmt(s) => match s {
+                Stmt::Expr(e) => self.print_node(unit, *e, indent, out, nested + 1),
+                Stmt::Let { name, ty, value } => {
+                    write!(
+                        out,
+                        "{indent_str}let {name}: {ty}",
+                        indent_str = "  ".repeat(indent - 1),
+                        name = name,
+                        ty = ty,
+                    )
+                    .unwrap();
+                    if let Some(value) = value {
+                        write!(out, " = ").unwrap();
+                        self.print_node(unit, *value, indent + 1, out, nested + 1);
+                    }
+                    writeln!(out).unwrap();
+                }
+                Stmt::Break { value } => {
+                    write!(
+                        out,
+                        "{indent_str}break",
+                        indent_str = "  ".repeat(indent - 1)
+                    )
+                    .unwrap();
+                    if let Some(value) = value {
+                        write!(out, " ").unwrap();
+                        self.print_node(unit, *value, indent + 1, out, nested + 1);
+                    }
+                    writeln!(out).unwrap();
+                }
+                Stmt::Return { value } => {
+                    write!(
+                        out,
+                        "{indent_str}return",
+                        indent_str = "  ".repeat(indent - 1)
+                    )
+                    .unwrap();
+                    if let Some(value) = value {
+                        write!(out, " ").unwrap();
+                        self.print_node(unit, *value, indent + 1, out, nested + 1);
+                    }
+                    writeln!(out).unwrap();
+                }
+                Stmt::Continue => writeln!(
+                    out,
+                    "{indent_str}continue",
+                    indent_str = "  ".repeat(indent - 1)
+                )
+                .unwrap(),
+            },
+            ASTNode::Item(item) => {
+                match item {
+                    Item::Submodule { vis, name, id } => {
+                        writeln!(
+                            out,
+                            "{indent_str}{vis}mod {name} (Unit {path}) {{",
+                            vis = vis,
+                            name = name,
+                            path = self.canonicalize_path(*id, name.clone()),
+                        )
+                        .unwrap();
+                        for member in self.units.get(*id).unwrap().members().values() {
+                            self.print_node(*id, *member, indent + 1, out, nested + 1);
+                        }
+                        writeln!(out, "  }}").unwrap();
+                    }
+                    Item::FunctionDef {
+                        vis,
+                        name,
+                        params,
+                        ret_ty,
+                        body,
+                    } => {
+                        writeln!(
+                            out,
+                            "{indent_str}{vis}fn {name}({params}) {ret} {{",
+                            vis = vis,
+                            name = name,
+                            params = params
+                                .iter()
+                                .map(|(name, ty)| format!("{}: {}", name, ty))
+                                .collect::<Vec<_>>()
+                                .join(", "),
+                            ret = ret_ty.clone().unwrap_or(ItemPath::Name("void".to_owned())),
+                        )
+                        .unwrap();
+                        for stmt in body {
+                            self.print_node(unit, *stmt, indent + 1, out, nested + 1);
+                        }
+                        writeln!(out, "{indent_str}}}").unwrap();
+                    }
+                    Item::FunctionDecl {
+                        vis,
+                        name,
+                        args,
+                        ret_ty,
+                    } => writeln!(
+                        out,
+                        "{indent_str}{}extern fn {}({}) -> {}",
+                        vis,
+                        name,
+                        args.iter()
+                            .map(|(name, ty)| format!("  {}: {}", name, ty))
+                            .collect::<Vec<_>>()
+                            .join(", "),
+                        ret_ty.clone().unwrap_or(ItemPath::Name("void".to_owned()))
+                    )
+                    .unwrap(),
+                    Item::StructDef { vis, name, fields } => writeln!(
+                        out,
+                        "{indent_str}{}struct {} {{\n{}\n{indent_str}}}",
+                        vis,
+                        name,
+                        fields
+                            .iter()
+                            .map(|v| format!("{}{}: {}", "  ".repeat(indent + 1), v.0, v.1))
+                            .collect::<Vec<_>>()
+                            .join(",\n"),
+                    )
+                    .unwrap(),
+                    Item::TypeDef { vis, name, ty } => {
+                        writeln!(out, "{indent_str}{}type {} = {}", vis, name, ty).unwrap()
+                    }
+                    Item::ConstDef {
+                        vis,
+                        name,
+                        ty,
+                        value: _,
+                    } => writeln!(out, "{indent_str}{}const {}: {}", vis, name, ty).unwrap(),
+                };
+                writeln!(out).unwrap();
+            }
+            #[allow(unreachable_patterns)]
+            _ => writeln!(out, "{}???", "  ".repeat(indent - 1)).unwrap(),
+        }
+    }
+
+    pub fn dbg_print(&self) {
+        let root = self.root;
+        let unit = self.units.get(root).unwrap();
+        let mut writer = String::new();
+        for member in unit.members().values().copied() {
+            self.print_node(root, member, 0, &mut writer, 0);
+        }
+        println!("{}", writer);
+    }
+}
