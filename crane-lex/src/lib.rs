@@ -190,6 +190,7 @@ impl Token {
         use self::Symbol::*;
         use Token::Symbol;
         match self {
+            Symbol(Assignment(_)) => 0,
             // Comparison operators have the highest precedence
             Symbol(Comparison(Equal))
             | Symbol(Comparison(NotEqual))

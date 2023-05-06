@@ -9,4 +9,5 @@ edition = "2021"
 anyhow = "1.0.71"
 ariadne = { version = "0.2.0", features = ["auto-color"] }
 crane-lex = { path = "../crane-lex/" }
+log = "0.4.17"
 slotmap = "1.0.6"

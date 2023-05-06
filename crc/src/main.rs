@@ -22,10 +22,10 @@ fn main() -> anyhow::Result<()> {
         return Ok(());
     };
 
-    println!(
-        "{:#?}",
-        tokens.iter().rev().take(5).rev().collect::<Vec<_>>()
-    );
+    // println!(
+    //     "{:#?}",
+    //     tokens.iter().rev().take(5).rev().collect::<Vec<_>>()
+    // );
 
     let mut package = Package::new();
 
@@ -34,5 +34,6 @@ fn main() -> anyhow::Result<()> {
     let unit = package.get_unit(parsed).unwrap();
 
     println!("{:#?}", unit);
+    package.dbg_print();
     Ok(())
 }
