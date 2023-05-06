@@ -5,9 +5,9 @@ use crane_parse as parse;
 use parse::Package;
 
 fn main() -> anyhow::Result<()> {
+    env_logger::init();
     let test = include_str!("../../test.cr");
-    let lexer = lex::Lexer::new();
-    let (tokens, errors) = lexer.lex_str(test)?;
+    let (tokens, errors) = lex::lex_str(test, "test")?;
 
     for error in errors {
         println!(

@@ -4,6 +4,7 @@ use std::{
 };
 
 use anyhow::Result;
+use chumsky::recursive::recursive;
 use log::debug;
 
 use crane_lex as lex;
@@ -286,6 +287,7 @@ impl Package {
                 };
                 writeln!(out, "").unwrap();
             }
+            #[allow(unreachable_patterns)]
             _ => writeln!(out, "{}???", "  ".repeat(indent - 1)).unwrap(),
         }
     }
@@ -298,85 +300,6 @@ impl Package {
             self.print_node(root, member, 0, &mut writer, 0);
         }
         println!("{}", writer);
-        //     self.print_node(unit, node, indent, out)p
-
-        // for (id, unit) in self.units.iter() {
-        //     println!(
-        //         "Unit {} {{\n",
-        //         self.canonicalize_path(id, ItemPath::Name(unit.name.clone()))
-        //     );
-        //     for (_name, node) in unit.members.iter() {
-        //         let node = unit.ast_nodes.get(*node).unwrap();
-        //         println!(
-        //             "{}\n",
-        //             match node {
-        //                 ASTNode::Item(item) => match item {
-        //                     Item::Submodule { vis, name, id } => {
-        //                         format!(
-        //                             "  {}mod {} (Unit {})",
-        //                             vis,
-        //                             name,
-        //                             self.canonicalize_path(*id, name.clone())
-        //                         )
-        //                     }
-        //                     Item::FunctionDef {
-        //                         vis,
-        //                         name,
-        //                         params,
-        //                         ret_ty,
-        //                         body: _,
-        //                     } => format!(
-        //                         "  {vis}fn {name}({params}) {ret} {{ {body} }}",
-        //                         vis = vis,
-        //                         name = name,
-        //                         params = params
-        //                             .iter()
-        //                             .map(|(name, ty)| format!("  {}: {}", name, ty))
-        //                             .collect::<Vec<_>>()
-        //                             .join(", "),
-        //                         ret = ret_ty.clone().unwrap_or(ItemPath::Name("void".to_owned())),
-        //                         body = ""
-        //                     ),
-        //                     Item::FunctionDecl {
-        //                         vis,
-        //                         name,
-        //                         args,
-        //                         ret_ty,
-        //                     } => format!(
-        //                         "  {}extern fn {}({}) -> {}",
-        //                         vis,
-        //                         name,
-        //                         args.iter()
-        //                             .map(|(name, ty)| format!("  {}: {}", name, ty))
-        //                             .collect::<Vec<_>>()
-        //                             .join(", "),
-        //                         ret_ty.clone().unwrap_or(ItemPath::Name("void".to_owned()))
-        //                     ),
-        //                     Item::StructDef { vis, name, fields } => format!(
-        //                         "  {}struct {} {{\n{}\n  }}",
-        //                         vis,
-        //                         name,
-        //                         fields
-        //                             .iter()
-        //                             .map(|v| format!("    {}: {}", v.0, v.1))
-        //                             .collect::<Vec<_>>()
-        //                             .join(",\n"),
-        //                     ),
-        //                     Item::TypeDef { vis, name, ty } =>
-        //                         format!("  {}type {} = {}", vis, name, ty),
-        //                     Item::ConstDef {
-        //                         vis,
-        //                         name,
-        //                         ty,
-        //                         value: _,
-        //                     } => format!("  {}const {}: {}", vis, name, ty),
-        //                 },
-        //                 _ => "???".to_owned(),
-        //             }
-        //         );
-        //     }
-        //     println!("}}\n");
-        // }
     }
 }
 
@@ -1254,7 +1177,7 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_expr_stmt(&mut self, unit_id: UnitId) -> Result<NodeId> {
-        debug!("parse_expr_stmt");
+        debug!("parse_expr_stmt: {:?}", self.current());
         self.parse_expr(unit_id)
     }
 
@@ -1355,7 +1278,7 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_expr(&mut self, unit_id: UnitId) -> Result<NodeId> {
-        debug!("parse_expr");
+        debug!("parse_expr: {:?}", self.current());
         match self
             .current()
             .ok_or(anyhow::anyhow!("unexpected eof"))?
@@ -1546,13 +1469,15 @@ impl<'a> Parser<'a> {
                     .ast_nodes
                     .insert(ASTNode::Expr(Expr::UnaryOp { op, operand })))
             }
-            _ => self.parse_method_or_member_expr(unit_id),
+            _ => self.parse_call_member_expr(unit_id),
         }
     }
 
-    fn parse_method_or_member_expr(&mut self, unit_id: UnitId) -> Result<NodeId> {
-        debug!("parse_method_or_member_expr");
+    fn parse_call_member_expr(&mut self, unit_id: UnitId) -> Result<NodeId> {
+        debug!("parse_method_or_member_expr 2");
+        debug!("current: {:?}", self.current());
         let member = self.parse_member_expr(unit_id)?;
+        debug!("member: {:?}", member);
         if let Some(Token::Symbol(Symbol::Punctuation(Punctuation::OpenParen))) =
             self.current().map(|t| &t.value)
         {
@@ -1603,7 +1528,7 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_member_expr(&mut self, unit_id: UnitId) -> Result<NodeId> {
-        debug!("parse_member_expr");
+        debug!("parse_member_expr 3 {:?}", self.current());
         let mut object = self.parse_primary_expr(unit_id)?;
         let mut scope_resolution = false;
 
@@ -1695,8 +1620,8 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_lhs_expr(&mut self, unit_id: UnitId) -> Result<NodeId> {
-        debug!("parse_lhs_expr");
-        self.parse_method_or_member_expr(unit_id)
+        debug!("parse_lhs_expr 1");
+        self.parse_call_member_expr(unit_id)
     }
 
     fn parse_identifier(&mut self, unit_id: UnitId) -> std::result::Result<NodeId, anyhow::Error> {
@@ -1745,11 +1670,13 @@ impl<'a> Parser<'a> {
 
     fn parse_assignment(&mut self, unit_id: UnitId) -> Result<NodeId> {
         debug!("parse_assignment");
+        debug!("curr: {:?}", self.current());
         let lhs = self.parse_logical_or(unit_id)?;
+        debug!("curr2: {:?}", self.current());
         if let Some(Token::Symbol(Symbol::Assignment(op))) = self.current().map(|t| t.value.clone())
         {
             self.advance();
-            let rhs = self.parse_expr(unit_id)?;
+            let rhs = self.parse_assignment(unit_id)?;
             Ok(self
                 .package
                 .units
