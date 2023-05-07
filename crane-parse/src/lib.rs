@@ -9,7 +9,9 @@ use lex::{IntoStream, Span, SplitSpanned};
 use slotmap::new_key_type;
 
 use crane_lex as lex;
-use crane_lex::{Assignment, Keyword, Punctuation, Spanned, Symbol, Token, Visibility};
+use crane_lex::{
+    Arithmetic, Assignment, Comparison, Keyword, Punctuation, Spanned, Symbol, Token, Visibility,
+};
 
 pub mod expr;
 pub mod item;
@@ -22,7 +24,7 @@ use expr::Expr;
 use item::Item;
 use ops::BinaryOp;
 use package::Package;
-use path::{ItemPath, PathPart};
+use path::{ItemPath, PathPart, TypeName};
 use unit::{NodeId, Unit, UnitId};
 
 new_key_type! {
@@ -68,40 +70,52 @@ pub type ParserResult<'src> = ParseResult<UnitId, ParserError<'src>>;
 
 pub type ParserStream<'src> = BoxedStream<'src, Token>;
 
-#[allow(unused)]
+#[macro_export]
 macro_rules! kw {
     ($id:ident) => {
         just(Token::Keyword(Keyword::$id))
     };
+    (@$id:ident) => {
+        Token::Keyword(Keyword::$id)
+    };
 }
 
-#[allow(unused)]
+#[macro_export]
 macro_rules! punc {
     ($id:ident) => {
         just(Token::Symbol(Symbol::Punctuation(Punctuation::$id)))
     };
+    (@$id:ident) => {
+        Token::Symbol(Symbol::Punctuation(Punctuation::$id))
+    };
 }
 
-#[allow(unused)]
+#[macro_export]
 macro_rules! math {
     ($id:ident) => {
         just(Token::Symbol(Symbol::Arithmetic(Arithmetic::$id)))
     };
+    (@$id:ident) => {
+        Token::Symbol(Symbol::Arithmetic(Arithmetic::$id))
+    };
 }
 
-#[allow(unused)]
+#[macro_export]
 macro_rules! cmp {
     ($id:ident) => {
         just(Token::Symbol(Symbol::Comparison(Comparison::$id)))
     };
+    (@$id:ident) => {
+        Token::Symbol(Symbol::Comparison(Comparison::$id))
+    };
 }
 
-#[allow(unused)]
+#[macro_export]
 macro_rules! assign {
     ($id:ident) => {
         just(Token::Symbol(Symbol::Assignment(Assignment::$id)))
     };
-    [$id:ident] => {
+    (@$id:ident) => {
         Token::Symbol(Symbol::Assignment(Assignment::$id))
     };
 }
@@ -119,7 +133,7 @@ fn params<'src>(
 ) -> impl ChumskyParser<'src, ParserStream<'src>, Vec<(String, ItemPath)>, ParserExtra<'src>> {
     ident_str()
         .then_ignore(punc!(Colon))
-        .then(path::path())
+        .then(path::path(0))
         .separated_by(punc!(Comma))
         .at_least(0)
         .collect::<Vec<(String, ItemPath)>>()
@@ -142,10 +156,10 @@ fn literal<'src>() -> impl ChumskyParser<'src, ParserStream<'src>, NodeId, Parse
 
 fn expr<'src>() -> impl ChumskyParser<'src, ParserStream<'src>, NodeId, ParserExtra<'src>> {
     recursive(|expr| {
-        let r#let = just(Token::Keyword(Keyword::Let))
+        let r#let = kw!(Let)
             .ignore_then(ident_str())
             .then_ignore(punc!(Colon))
-            .then(path::path())
+            .then(typename())
             .then(assign!(Assign).ignore_then(expr.clone()).or_not())
             .map_with_state(|((name, ty), value), _span, state: &mut ParserState| {
                 state
@@ -209,7 +223,14 @@ fn expr<'src>() -> impl ChumskyParser<'src, ParserStream<'src>, NodeId, ParserEx
                     .new_expr(Expr::While { cond, body })
             });
 
+        let scope_resolution = path::path(1).map_with_state(|path, _span, state| {
+            state
+                .current_unit_mut()
+                .new_expr(Expr::ScopeResolution { path })
+        });
+
         let atom = literal()
+            .or(scope_resolution)
             .or(ident)
             .or(block)
             .or(r#loop)
@@ -222,33 +243,21 @@ fn expr<'src>() -> impl ChumskyParser<'src, ParserStream<'src>, NodeId, ParserEx
                 .delimited_by(punc!(OpenParen), punc!(CloseParen)))
             // Attempt to recover anything that looks like a parenthesised expression but contains errors
             .recover_with(via_parser(nested_delimiters(
-                Token::Symbol(Symbol::Punctuation(Punctuation::OpenParen)),
-                Token::Symbol(Symbol::Punctuation(Punctuation::CloseParen)),
+                punc!(@OpenParen),
+                punc!(@CloseParen),
                 [
-                    (
-                        Token::Symbol(Symbol::Punctuation(Punctuation::OpenBracket)),
-                        Token::Symbol(Symbol::Punctuation(Punctuation::CloseBracket)),
-                    ),
-                    (
-                        Token::Symbol(Symbol::Punctuation(Punctuation::OpenBrace)),
-                        Token::Symbol(Symbol::Punctuation(Punctuation::CloseBrace)),
-                    ),
+                    (punc!(@OpenBracket), punc!(@CloseBracket)),
+                    (punc!(@OpenBrace), punc!(@CloseBrace)),
                 ],
                 |_span| NodeId::default(),
             )))
             // Attempt to recover anything that looks like a list but contains errors
             .recover_with(via_parser(nested_delimiters(
-                Token::Symbol(Symbol::Punctuation(Punctuation::OpenBracket)),
-                Token::Symbol(Symbol::Punctuation(Punctuation::CloseBracket)),
+                punc!(@OpenBracket),
+                punc!(@CloseBracket),
                 [
-                    (
-                        Token::Symbol(Symbol::Punctuation(Punctuation::OpenParen)),
-                        Token::Symbol(Symbol::Punctuation(Punctuation::CloseParen)),
-                    ),
-                    (
-                        Token::Symbol(Symbol::Punctuation(Punctuation::OpenBrace)),
-                        Token::Symbol(Symbol::Punctuation(Punctuation::CloseBrace)),
-                    ),
+                    (punc!(@OpenParen), punc!(@CloseParen)),
+                    (punc!(@OpenBrace), punc!(@CloseBrace)),
                 ],
                 |_span| NodeId::default(),
             )))
@@ -270,16 +279,10 @@ fn expr<'src>() -> impl ChumskyParser<'src, ParserStream<'src>, NodeId, ParserEx
                 .new_expr(Expr::Call { callee: f, args })
         });
 
-        let multiplicative = just(Token::Symbol(Symbol::Arithmetic(lex::Arithmetic::Times)))
+        let multiplicative = math!(Times)
             .map(|_| BinaryOp::Mul)
-            .or(
-                just(Token::Symbol(Symbol::Arithmetic(lex::Arithmetic::Divide)))
-                    .map(|_| BinaryOp::Div),
-            )
-            .or(
-                just(Token::Symbol(Symbol::Arithmetic(lex::Arithmetic::Mod)))
-                    .map(|_| BinaryOp::Mod),
-            );
+            .or(math!(Divide).map(|_| BinaryOp::Div))
+            .or(math!(Mod).map(|_| BinaryOp::Mod));
         let product = call.clone().foldl_with_state(
             multiplicative.then(call).repeated(),
             |lhs, (op, rhs), state| {
@@ -289,12 +292,9 @@ fn expr<'src>() -> impl ChumskyParser<'src, ParserStream<'src>, NodeId, ParserEx
             },
         );
 
-        let additive = just(Token::Symbol(Symbol::Arithmetic(lex::Arithmetic::Plus)))
+        let additive = math!(Plus)
             .map(|_| BinaryOp::Add)
-            .or(
-                just(Token::Symbol(Symbol::Arithmetic(lex::Arithmetic::Minus)))
-                    .map(|_| BinaryOp::Sub),
-            );
+            .or(math!(Minus).map(|_| BinaryOp::Sub));
         let sum = product.clone().foldl_with_state(
             additive.then(product).repeated(),
             |lhs, (op, rhs), state| {
@@ -304,12 +304,9 @@ fn expr<'src>() -> impl ChumskyParser<'src, ParserStream<'src>, NodeId, ParserEx
             },
         );
 
-        let equality = just(Token::Symbol(Symbol::Comparison(lex::Comparison::Equal)))
+        let equality = cmp!(Equal)
             .map(|_| BinaryOp::Eq)
-            .or(
-                just(Token::Symbol(Symbol::Comparison(lex::Comparison::NotEqual)))
-                    .map(|_| BinaryOp::Neq),
-            );
+            .or(cmp!(NotEqual).map(|_| BinaryOp::Neq));
         let cmp_equality =
             sum.clone()
                 .foldl_with_state(equality.then(sum).repeated(), |lhs, (op, rhs), state| {
@@ -318,20 +315,11 @@ fn expr<'src>() -> impl ChumskyParser<'src, ParserStream<'src>, NodeId, ParserEx
                         .new_expr(Expr::BinaryOp { lhs, op, rhs })
                 });
 
-        let relational = just(Token::Symbol(Symbol::Comparison(lex::Comparison::LessThan)))
+        let relational = cmp!(LessThan)
             .map(|_| BinaryOp::Lt)
-            .or(just(Token::Symbol(Symbol::Comparison(
-                lex::Comparison::LessThanOrEqual,
-            )))
-            .map(|_| BinaryOp::Leq))
-            .or(just(Token::Symbol(Symbol::Comparison(
-                lex::Comparison::GreaterThan,
-            )))
-            .map(|_| BinaryOp::Gt))
-            .or(just(Token::Symbol(Symbol::Comparison(
-                lex::Comparison::GreaterThanOrEqual,
-            )))
-            .map(|_| BinaryOp::Geq));
+            .or(cmp!(LessThanOrEqual).map(|_| BinaryOp::Leq))
+            .or(cmp!(GreaterThan).map(|_| BinaryOp::Gt))
+            .or(cmp!(GreaterThanOrEqual).map(|_| BinaryOp::Geq));
         let cmp_relational = cmp_equality.clone().foldl_with_state(
             relational.then(cmp_equality).repeated(),
             |lhs, (op, rhs), state| {
@@ -348,9 +336,7 @@ fn expr<'src>() -> impl ChumskyParser<'src, ParserStream<'src>, NodeId, ParserEx
 fn block<'src>() -> impl ChumskyParser<'src, ParserStream<'src>, NodeId, ParserExtra<'src>> {
     punc!(OpenBrace)
         .ignore_then(expr().repeated().at_least(0).collect::<Vec<NodeId>>())
-        .then_ignore(just(Token::Symbol(Symbol::Punctuation(
-            Punctuation::CloseBrace,
-        ))))
+        .then_ignore(punc!(CloseBrace))
         .map_with_state(|stmts, _span, state: &mut ParserState| {
             let unit_id = state.current_unit_id();
             let unit = state.package.unit_mut(unit_id).unwrap();
@@ -373,16 +359,12 @@ fn vis<'src>() -> impl ChumskyParser<'src, ParserStream<'src>, Visibility, Parse
 
 fn func_def<'src>() -> impl ChumskyParser<'src, ParserStream<'src>, NodeId, ParserExtra<'src>> {
     vis()
-        .then_ignore(just(Token::Keyword(Keyword::Fn)))
+        .then_ignore(kw!(Fn))
         .then(ident_str())
-        .then_ignore(just(Token::Symbol(Symbol::Punctuation(
-            Punctuation::OpenParen,
-        ))))
+        .then_ignore(punc!(OpenParen))
         .then(params())
-        .then_ignore(just(Token::Symbol(Symbol::Punctuation(
-            Punctuation::CloseParen,
-        ))))
-        .then(punc!(RightArrow).ignore_then(path::path()).or_not())
+        .then_ignore(punc!(CloseParen))
+        .then(punc!(RightArrow).ignore_then(path::path(0)).or_not())
         .then(block())
         .map_with_state(
             |((((vis, name), params), ret_ty), body): (
@@ -414,10 +396,10 @@ fn func_def<'src>() -> impl ChumskyParser<'src, ParserStream<'src>, NodeId, Pars
 
 fn type_def<'src>() -> impl ChumskyParser<'src, ParserStream<'src>, NodeId, ParserExtra<'src>> {
     vis()
-        .then_ignore(just(Token::Keyword(Keyword::Type)))
+        .then_ignore(kw!(Type))
         .then(ident_str())
         .then_ignore(assign!(Assign))
-        .then(path::path())
+        .then(path::path(0))
         .map_with_state(
             move |((vis, name), ty), _span: SimpleSpan, state: &mut ParserState| {
                 state
@@ -438,15 +420,11 @@ fn type_def<'src>() -> impl ChumskyParser<'src, ParserStream<'src>, NodeId, Pars
 
 fn struct_def<'src>() -> impl ChumskyParser<'src, ParserStream<'src>, NodeId, ParserExtra<'src>> {
     vis()
-        .then_ignore(just(Token::Keyword(Keyword::Struct)))
+        .then_ignore(kw!(Struct))
         .then(ident_str())
-        .then_ignore(just(Token::Symbol(Symbol::Punctuation(
-            Punctuation::OpenBrace,
-        ))))
+        .then_ignore(punc!(OpenBrace))
         .then(params())
-        .then_ignore(just(Token::Symbol(Symbol::Punctuation(
-            Punctuation::CloseBrace,
-        ))))
+        .then_ignore(punc!(CloseBrace))
         .map_with_state(|((vis, name), fields), _span, state: &mut ParserState| {
             state
                 .package
@@ -465,10 +443,10 @@ fn struct_def<'src>() -> impl ChumskyParser<'src, ParserStream<'src>, NodeId, Pa
 
 fn const_def<'src>() -> impl ChumskyParser<'src, ParserStream<'src>, NodeId, ParserExtra<'src>> {
     vis()
-        .then_ignore(just(Token::Keyword(Keyword::Const)))
+        .then_ignore(kw!(Const))
         .then(ident_str())
-        .then_ignore(just(Token::Symbol(Symbol::Punctuation(Punctuation::Colon))))
-        .then(path::path())
+        .then_ignore(punc!(Colon))
+        .then(path::path(0))
         .then_ignore(assign!(Assign))
         .then(expr())
         .map_with_state(
@@ -492,10 +470,10 @@ fn const_def<'src>() -> impl ChumskyParser<'src, ParserStream<'src>, NodeId, Par
 
 fn static_def<'src>() -> impl ChumskyParser<'src, ParserStream<'src>, NodeId, ParserExtra<'src>> {
     vis()
-        .then_ignore(just(Token::Keyword(Keyword::Static)))
+        .then_ignore(kw!(Static))
         .then(ident_str())
-        .then_ignore(just(Token::Symbol(Symbol::Punctuation(Punctuation::Colon))))
-        .then(path::path())
+        .then_ignore(punc!(Colon))
+        .then(path::path(0))
         .then_ignore(assign!(Assign))
         .then(expr())
         .map_with_state(
@@ -523,6 +501,19 @@ fn item<'src>() -> impl ChumskyParser<'src, ParserStream<'src>, NodeId, ParserEx
         .or(struct_def())
         .or(const_def())
         .or(static_def())
+}
+
+fn typename<'src>() -> impl ChumskyParser<'src, ParserStream<'src>, TypeName, ParserExtra<'src>> {
+    math!(Times).repeated().foldr(
+        path::path(0).map(|p| TypeName {
+            path: p,
+            ptr_depth: 0,
+        }),
+        |_, p: TypeName| TypeName {
+            path: p.path,
+            ptr_depth: p.ptr_depth + 1,
+        },
+    )
 }
 
 fn unit<'src>() -> impl ChumskyParser<'src, ParserStream<'src>, UnitId, ParserExtra<'src>> {

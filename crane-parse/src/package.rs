@@ -294,16 +294,23 @@ pub mod pass {
                                 (unit, *body, indent + 1, out.clone(), nested + 1, false),
                             );
                         }
-                        Expr::ScopeResolution { object, member } => {
-                            self.inspect(
-                                scope,
-                                (unit, *object, indent, out.clone(), nested + 1, false),
-                            );
-                            write!(out.borrow_mut(), "::").unwrap();
-                            self.inspect(
-                                scope,
-                                (unit, *member, indent, out.clone(), nested + 1, false),
-                            );
+                        Expr::ScopeResolution { path } => {
+                            // self.inspect(
+                            //     scope,
+                            //     (unit, *object, indent, out.clone(), nested + 1, false),
+                            // );
+                            // write!(out.borrow_mut(), "::").unwrap();
+                            // self.inspect(
+                            //     scope,
+                            //     (unit, *member, indent, out.clone(), nested + 1, false),
+                            // );
+                            write!(
+                                out.borrow_mut(),
+                                "{indent}{}",
+                                path,
+                                indent = "  ".repeat(indent - 1)
+                            )
+                            .unwrap();
                         }
                         Expr::Let { name, ty, value } => {
                             write!(
@@ -363,7 +370,6 @@ pub mod pass {
                         )
                         .unwrap(),
                         Expr::List { .. } => todo!(),
-                        Expr::Error => todo!(),
                     };
                     if newline {
                         writeln!(out.borrow_mut()).unwrap();

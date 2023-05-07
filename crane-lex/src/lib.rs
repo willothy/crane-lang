@@ -2,6 +2,7 @@ use anyhow::Result;
 use chumsky::{
     error,
     input::{BoxedStream, Stream},
+    text::newline,
 };
 use std::hash::Hash;
 use std::path::PathBuf;
@@ -430,15 +431,6 @@ pub trait IntoStream<'a, I> {
     fn into_stream(self) -> BoxedStream<'a, I>;
 }
 
-// impl<'a, T: 'a, S: 'a> IntoStream<'a, (T, S)> for Vec<Spanned<T, S>> {
-//     fn into_stream(self) -> BoxedStream<'a, (T, S)> {
-//         let iter: Box<dyn Iterator<Item = _>> = Box::new(self.split_spanned().into_iter());
-//         let stream = Stream::from_iter(iter);
-//         let boxed = BoxedStream::boxed(stream);
-//         boxed
-//     }
-// }
-
 impl<'a, T: 'a> IntoStream<'a, T> for Vec<T> {
     fn into_stream(self) -> BoxedStream<'a, T> {
         let iter: Box<dyn Iterator<Item = _>> = Box::new(self.into_iter());
@@ -450,8 +442,8 @@ impl<'a, T: 'a> IntoStream<'a, T> for Vec<T> {
 
 pub type Sources = Arc<RwLock<FileCache>>;
 
-pub type LexerError<'src> = error::Simple<'src, char>; //error::Rich<'src, E>;
-                                                       // pub type LexerState = String;
+pub type LexerError<'src> = error::Rich<'src, char>; //error::Simple<'src, char>; //
+
 pub type LexerCtx = ();
 pub type LexerExtra<'src> = extra::Full<LexerError<'src>, LexerState, LexerCtx>;
 
@@ -471,18 +463,6 @@ pub fn lex<'src>(source: &'src str, source_id: impl AsRef<str>) -> Result<LexerR
     let mut state = LexerState::new(Arc::new(PathBuf::from(source_id.as_ref())));
     Ok(lexer().parse_with_state(source, &mut state))
 }
-
-// pub fn lex_file(files: Sources, path: &Path) -> Result<LexerOutput, anyhow::Error> {
-//     let path = path.canonicalize().map_err(|e| anyhow::anyhow!("{}", e))?;
-//     let mut files = files
-//         .write()
-//         .map_err(|_| anyhow::anyhow!("Failed to lock file cache"))?;
-//     let source = files
-//         .fetch(path.as_ref())
-//         .map_err(|e| anyhow::anyhow!("{:?}", e))?;
-//     let s = source.chars().collect();
-//     lex(&s, Arc::new(path))
-// }
 
 pub fn kw<'src>() -> impl Parser<'src, &'src str, Spanned<Token, Span>, LexerExtra<'src>> {
     choice((
@@ -707,6 +687,14 @@ pub fn char_literal<'src>() -> impl Parser<'src, &'src str, Spanned<Token, Span>
 
 pub fn token<'src>() -> impl Parser<'src, &'src str, Spanned<Token, Span>, LexerExtra<'src>> {
     choice((
+        newline().map_with_state(move |_, span: SimpleSpan, state: &mut LexerState| Spanned {
+            span: Span {
+                source: state.source_id.clone(),
+                start: span.start(),
+                end: span.end(),
+            },
+            value: Token::Newline,
+        }),
         punctuation(),
         vis(),
         kw(),

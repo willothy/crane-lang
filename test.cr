@@ -18,12 +18,14 @@ pub fn func() -> f32 {
 		let a: f32 = test(5 + 5)
 	}
 
+	::Test::test(5)
+
 	while true {
 	 	let a: f32 = test(5 + 5)
 	}
 
 	if 2 == 5 {
-		let a: f32 = test(5 + 5)
+		let a: *f32 = test(5 + 5)
 		9
 	}
 

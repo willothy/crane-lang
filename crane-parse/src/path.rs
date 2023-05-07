@@ -9,6 +9,21 @@ use crane_lex::Token;
 
 use crate::ParserExtra;
 
+#[derive(Debug, PartialEq)]
+pub struct TypeName {
+    pub path: ItemPath,
+    pub ptr_depth: usize,
+}
+
+impl Display for TypeName {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        for _ in 0..self.ptr_depth {
+            write!(f, "*")?;
+        }
+        write!(f, "{}", self.path)
+    }
+}
+
 #[derive(Debug, PartialEq, Clone)]
 pub enum PathPart {
     Root,
@@ -53,7 +68,9 @@ impl From<Vec<PathPart>> for ItemPath {
     }
 }
 
-pub fn path<'src>() -> impl Parser<'src, BoxedStream<'src, Token>, ItemPath, ParserExtra<'src>> {
+pub fn path<'src>(
+    min: usize,
+) -> impl Parser<'src, BoxedStream<'src, Token>, ItemPath, ParserExtra<'src>> {
     choice((
         just(Token::Symbol(crane_lex::Symbol::Punctuation(
             crane_lex::Punctuation::DoubleColon,
@@ -92,7 +109,7 @@ pub fn path<'src>() -> impl Parser<'src, BoxedStream<'src, Token>, ItemPath, Par
         .separated_by(just(Token::Symbol(crane_lex::Symbol::Punctuation(
             crane_lex::Punctuation::DoubleColon,
         ))))
-        .at_least(0)
+        .at_least(min)
         .collect::<Vec<_>>(),
     )
     .map(|(first, rest)| ItemPath::from(std::iter::once(first).chain(rest).collect::<Vec<_>>()))
