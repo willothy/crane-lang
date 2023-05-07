@@ -363,12 +363,33 @@ impl Package {
                     Item::TypeDef { vis, name, ty } => {
                         writeln!(out, "{indent_str}{}type {} = {}", vis, name, ty).unwrap()
                     }
-                    Item::ConstDef {
+                    v @ Item::ConstDef {
                         vis,
                         name,
                         ty,
-                        value: _,
-                    } => writeln!(out, "{indent_str}{}const {}: {}", vis, name, ty).unwrap(),
+                        value,
+                    }
+                    | v @ Item::StaticDef {
+                        vis,
+                        ty,
+                        name,
+                        value,
+                    } => {
+                        write!(
+                            out,
+                            "{indent_str}{}{kind} {}: {} = ",
+                            vis,
+                            name,
+                            ty,
+                            kind = if matches!(v, Item::ConstDef { .. }) {
+                                "const"
+                            } else {
+                                "static"
+                            }
+                        )
+                        .unwrap();
+                        self.print_node(unit, *value, indent + 1, out, nested + 1, false);
+                    }
                 };
                 writeln!(out).unwrap();
             }

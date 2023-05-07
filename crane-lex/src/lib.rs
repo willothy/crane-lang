@@ -34,7 +34,9 @@ pub enum Keyword {
     Use,
     Super,
     Self_,
-    Root, // struct
+    Root,
+    Const,
+    Static,
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -317,6 +319,8 @@ impl TryFrom<&str> for Keyword {
             "use" => Keyword::Use,
             "as" => Keyword::As,
             "impl" => Keyword::Impl,
+            "const" => Keyword::Const,
+            "static" => Keyword::Static,
             _ => Err(())?,
         })
     }
@@ -502,6 +506,8 @@ pub fn kw<'src>() -> impl Parser<'src, &'src str, Spanned<Token, Span>, LexerExt
         keyword("use").map(|_| Keyword::Use),
         keyword("as").map(|_| Keyword::As),
         keyword("impl").map(|_| Keyword::Impl),
+        keyword("const").map(|_| Keyword::Const),
+        keyword("static").map(|_| Keyword::Static),
     ))
     .map_with_state(
         move |kw: Keyword, span: SimpleSpan, state: &mut LexerState| Spanned {

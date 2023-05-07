@@ -463,8 +463,66 @@ fn struct_def<'src>() -> impl ChumskyParser<'src, ParserStream<'src>, NodeId, Pa
         })
 }
 
+fn const_def<'src>() -> impl ChumskyParser<'src, ParserStream<'src>, NodeId, ParserExtra<'src>> {
+    vis()
+        .then_ignore(just(Token::Keyword(Keyword::Const)))
+        .then(ident_str())
+        .then_ignore(just(Token::Symbol(Symbol::Punctuation(Punctuation::Colon))))
+        .then(path::path())
+        .then_ignore(assign!(Assign))
+        .then(expr())
+        .map_with_state(
+            |(((vis, name), ty), value), _span: SimpleSpan, state: &mut ParserState| {
+                state
+                    .package
+                    .unit_mut(state.current_unit_id().clone())
+                    .unwrap()
+                    .new_item(
+                        name.clone(),
+                        Item::ConstDef {
+                            vis,
+                            ty,
+                            name,
+                            value,
+                        },
+                    )
+            },
+        )
+}
+
+fn static_def<'src>() -> impl ChumskyParser<'src, ParserStream<'src>, NodeId, ParserExtra<'src>> {
+    vis()
+        .then_ignore(just(Token::Keyword(Keyword::Static)))
+        .then(ident_str())
+        .then_ignore(just(Token::Symbol(Symbol::Punctuation(Punctuation::Colon))))
+        .then(path::path())
+        .then_ignore(assign!(Assign))
+        .then(expr())
+        .map_with_state(
+            |(((vis, name), ty), value), _span: SimpleSpan, state: &mut ParserState| {
+                state
+                    .package
+                    .unit_mut(state.current_unit_id().clone())
+                    .unwrap()
+                    .new_item(
+                        name.clone(),
+                        Item::StaticDef {
+                            vis,
+                            ty,
+                            name,
+                            value,
+                        },
+                    )
+            },
+        )
+}
+
 fn item<'src>() -> impl ChumskyParser<'src, ParserStream<'src>, NodeId, ParserExtra<'src>> {
-    type_def().or(func_def()).or(struct_def())
+    type_def()
+        .or(func_def())
+        .or(struct_def())
+        .or(const_def())
+        .or(static_def())
 }
 
 fn unit<'src>() -> impl ChumskyParser<'src, ParserStream<'src>, UnitId, ParserExtra<'src>> {

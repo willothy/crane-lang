@@ -9,6 +9,10 @@ struct Testing {
 	b: test
 }
 
+static S: i32 = 5
+
+const C: u8 = 2
+
 pub fn func() -> f32 {
 	loop {
 		let a: f32 = test(5 + 5)

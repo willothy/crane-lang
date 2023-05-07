@@ -42,4 +42,10 @@ pub enum Item {
         ty: ItemPath,
         value: NodeId,
     },
+    StaticDef {
+        vis: Visibility,
+        ty: ItemPath,
+        name: String,
+        value: NodeId,
+    },
 }
