@@ -13,5 +13,3 @@ anyhow = "1.0.71"
 ariadne = "0.2.0"
 chumsky = { git = "https://github.com/zesterer/chumsky" }
 log = "0.4.17"
-nom = "7.1.3"
-nom_locate = "4.1.0"
