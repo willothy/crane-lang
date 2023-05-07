@@ -15,12 +15,13 @@ pub mod path;
 pub mod stmt;
 pub mod unit;
 
+use expr::Expr;
+use item::Item;
 use ops::{AssignOp, BinaryOp, UnaryOp};
 use package::Package;
 use path::ItemPath;
-use unit::{NodeId, UnitId};
-
-use crate::{expr::Expr, item::Item, stmt::Stmt, unit::Unit};
+use stmt::Stmt;
+use unit::{NodeId, Unit, UnitId};
 
 new_key_type! {
     pub struct TypeId;

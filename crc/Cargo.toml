@@ -15,6 +15,7 @@ path = "src/main.rs"
 [dependencies]
 anyhow = "1.0.71"
 ariadne = { version = "0.2.0", features = ["auto-color"] }
+chumsky = "1.0.0-alpha.3"
 crane-lex = { version = "0.0.1", path = "../crane-lex/" }
 crane-parse = { path = "../crane-parse/" }
 env_logger = "0.10.0"

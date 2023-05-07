@@ -1,4 +1,3 @@
-use ariadne::Span;
 use crane_lex as lex;
 use crane_parse as parse;
 
@@ -7,25 +6,25 @@ use parse::package::Package;
 fn main() -> anyhow::Result<()> {
     env_logger::init();
     let test = include_str!("../../test.cr");
-    let (tokens, errors) = lex::lex_str(test, "test")?;
+
+    let lexer_res = lex::lex_str(test, "test")?;
+
+    let errors = lexer_res.errors();
 
     for error in errors {
-        println!(
-            "{} ({})",
-            error,
-            // error.span().,
-            error.span().start()
-        );
+        println!("{}", error);
     }
-    let Some(tokens) = tokens else {
-        println!("No tokens");
-        return Ok(());
-    };
 
-    // println!(
-    //     "{:#?}",
-    //     tokens.iter().rev().take(5).rev().collect::<Vec<_>>()
-    // );
+    if !lexer_res.has_output() {
+        return Err(anyhow::anyhow!("Lexer failed"));
+    }
+
+    let tokens = lexer_res.into_output().unwrap();
+
+    println!(
+        "{:#?}",
+        tokens.iter().rev().take(5).rev().collect::<Vec<_>>()
+    );
 
     // use lex::IntoStream;
     // let mut stream = tokens.into_stream();

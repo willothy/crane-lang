@@ -1,6 +1,9 @@
 use anyhow::Result;
+use chumsky::input::{BoxedStream, Stream};
 use std::hash::Hash;
 use std::path::PathBuf;
+
+use chumsky::{span::Span as ChumskySpan, text::keyword};
 
 #[derive(Debug, PartialEq)]
 pub struct SourceFile {
@@ -324,11 +327,8 @@ use std::{
     sync::{Arc, RwLock},
 };
 
-use ariadne::{Cache, FileCache, Source};
-use chumsky::{
-    prelude::*,
-    text::{keyword, Character},
-};
+use ariadne::{Cache, FileCache};
+use chumsky::prelude::*;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Span {
@@ -355,7 +355,7 @@ impl Span {
     }
 }
 
-impl chumsky::Span for Span {
+impl chumsky::span::Span for Span {
     type Context = Arc<PathBuf>;
 
     type Offset = usize;
@@ -421,36 +421,26 @@ impl SplitSpanned<Token> for Vec<Spanned<Token>> {
     }
 }
 
-pub trait IntoStream<I, S: chumsky::Span> {
-    fn into_stream<'a>(self) -> chumsky::BoxStream<'a, I, S>;
+pub trait IntoStream<I> {
+    fn into_stream<'a>(self) -> BoxedStream<'a, I>;
 }
 
-impl IntoStream<Token, Span> for Vec<Spanned<Token>> {
-    fn into_stream<'a>(self) -> chumsky::BoxStream<'a, Token, Span> {
-        use chumsky::BoxStream;
-
-        let (source, start) = self
-            .first()
-            .map(|tok| (tok.span.source(), tok.span.start()))
-            .unwrap_or((Arc::new(PathBuf::from("unknown")), 0));
-        let end = self.last().map(|tok| tok.span.end()).unwrap_or(0);
-        BoxStream::from_iter(
-            Span::from_range(source, start..end),
-            Box::new(self.into_iter().map(|tok| (tok.value, tok.span))),
-        )
+impl IntoStream<(Token, Span)> for Vec<Spanned<Token>> {
+    fn into_stream<'a>(self) -> BoxedStream<'a, (Token, Span)> {
+        let iter: Box<dyn Iterator<Item = _>> = Box::new(self.split_spanned().into_iter());
+        let stream = Stream::from_iter(iter);
+        let boxed = BoxedStream::boxed(stream);
+        boxed
     }
 }
 
 pub type Sources = Arc<RwLock<FileCache>>;
 
-pub type LexerOutput = (
-    Option<Vec<Spanned<Token>>>,
-    Vec<chumsky::error::Simple<char>>,
-);
+pub type LexerOutput<'a> = ParseResult<Vec<Spanned<Token>>, EmptyErr>;
 
 pub fn lex_str(source: &str, source_id: impl AsRef<str>) -> Result<LexerOutput> {
-    let source = Source::from(source);
-    lex(&source, PathBuf::from(source_id.as_ref()).as_path())
+    let s = source.to_string();
+    lex(&s, Arc::new(PathBuf::from(source_id.as_ref())))
 }
 
 pub fn lex_file(files: Sources, path: &Path) -> Result<LexerOutput, anyhow::Error> {
@@ -461,10 +451,36 @@ pub fn lex_file(files: Sources, path: &Path) -> Result<LexerOutput, anyhow::Erro
     let source = files
         .fetch(path.as_ref())
         .map_err(|e| anyhow::anyhow!("{:?}", e))?;
-    lex(source, path.as_ref())
+    let s = source.chars().collect();
+    lex(&s, Arc::new(path))
 }
 
-pub fn kw(source_id: &Arc<PathBuf>) -> impl Parser<char, Spanned<Token>, Error = Simple<char>> {
+pub fn kw2<'src>() -> impl Parser<'src, &'src str, Keyword> {
+    choice((
+        keyword("fn").map(|_| Keyword::Fn),
+        keyword("let").map(|_| Keyword::Let),
+        keyword("if").map(|_| Keyword::If),
+        keyword("else").map(|_| Keyword::Else),
+        keyword("return").map(|_| Keyword::Return),
+        keyword("while").map(|_| Keyword::While),
+        keyword("for").map(|_| Keyword::For),
+        keyword("in").map(|_| Keyword::In),
+        keyword("break").map(|_| Keyword::Break),
+        keyword("loop").map(|_| Keyword::Loop),
+        keyword("continue").map(|_| Keyword::Continue),
+        keyword("mod").map(|_| Keyword::Mod),
+        keyword("struct").map(|_| Keyword::Struct),
+        keyword("type").map(|_| Keyword::Type),
+        keyword("root").map(|_| Keyword::Root),
+        keyword("self").map(|_| Keyword::Self_),
+        keyword("super").map(|_| Keyword::Super),
+        keyword("use").map(|_| Keyword::Use),
+        keyword("as").map(|_| Keyword::As),
+        keyword("impl").map(|_| Keyword::Impl),
+    ))
+}
+
+pub fn kw<'src>(source_id: Arc<PathBuf>) -> impl Parser<'src, &'src str, Spanned<Token>> {
     let source_id = source_id.clone();
     choice((
         keyword("fn").map(|_| Keyword::Fn),
@@ -488,7 +504,7 @@ pub fn kw(source_id: &Arc<PathBuf>) -> impl Parser<char, Spanned<Token>, Error =
         keyword("as").map(|_| Keyword::As),
         keyword("impl").map(|_| Keyword::Impl),
     ))
-    .map_with_span(move |kw: Keyword, span: Range<usize>| Spanned {
+    .map_with_span(move |kw: Keyword, span: SimpleSpan| Spanned {
         span: Span {
             source: source_id.clone(),
             start: span.start(),
@@ -498,9 +514,9 @@ pub fn kw(source_id: &Arc<PathBuf>) -> impl Parser<char, Spanned<Token>, Error =
     })
 }
 
-pub fn vis(source_id: &Arc<PathBuf>) -> impl Parser<char, Spanned<Token>, Error = Simple<char>> {
+pub fn vis<'src>(source_id: Arc<PathBuf>) -> impl Parser<'src, &'src str, Spanned<Token>> {
     let source_id = source_id.clone();
-    keyword("pub").map_with_span(move |_, span: Range<usize>| Spanned {
+    keyword("pub").map_with_span(move |_, span: SimpleSpan| Spanned {
         span: Span {
             source: source_id.clone(),
             start: span.start(),
@@ -510,15 +526,12 @@ pub fn vis(source_id: &Arc<PathBuf>) -> impl Parser<char, Spanned<Token>, Error 
     })
 }
 
-pub fn bool_literal(
-    source_id: &Arc<PathBuf>,
-) -> impl Parser<char, Spanned<Token>, Error = Simple<char>> {
-    let source_id = source_id.clone();
+pub fn bool_literal<'src>(source_id: Arc<PathBuf>) -> impl Parser<'src, &'src str, Spanned<Token>> {
     choice((
         keyword("true").map(|_| Literal::Bool(true)),
         keyword("false").map(|_| Literal::Bool(false)),
     ))
-    .map_with_span(move |lit: Literal, span: Range<usize>| Spanned {
+    .map_with_span(move |lit: Literal, span: SimpleSpan| Spanned {
         span: Span {
             source: source_id.clone(),
             start: span.start(),
@@ -528,110 +541,97 @@ pub fn bool_literal(
     })
 }
 
-pub fn punctuation(
-    source_id: &Arc<PathBuf>,
-) -> impl Parser<char, Spanned<Token>, Error = Simple<char>> {
+pub fn punctuation<'src>(source_id: Arc<PathBuf>) -> impl Parser<'src, &'src str, Spanned<Token>> {
     let source_id = source_id.clone();
-    one_of::<_, _, Simple<char>>("{}[]()#@;,?").map_with_span(move |x: char, span: Range<usize>| {
-        Spanned {
-            span: Span {
-                source: source_id.clone(),
-                start: span.start(),
-                end: span.end(),
-            },
-            value: Token::Symbol(Symbol::Punctuation(match x {
-                '{' => Punctuation::OpenBrace,
-                '}' => Punctuation::CloseBrace,
-                '[' => Punctuation::OpenBracket,
-                ']' => Punctuation::CloseBracket,
-                '(' => Punctuation::OpenParen,
-                ')' => Punctuation::CloseParen,
-                '#' => Punctuation::Hash,
-                '@' => Punctuation::At,
-                ';' => Punctuation::Semicolon,
-                ',' => Punctuation::Comma,
-                '?' => Punctuation::Question,
-                _ => unreachable!(),
-            })),
-        }
-    })
-}
-
-pub fn ident(source_id: &Arc<PathBuf>) -> impl Parser<char, Spanned<Token>, Error = Simple<char>> {
-    let source_id = source_id.clone();
-    text::ident::<char, Simple<char>>().map_with_span(move |ident, span: Range<usize>| Spanned {
+    choice((
+        just("{").map(|_| Punctuation::OpenBrace),
+        just("}").map(|_| Punctuation::CloseBrace),
+        just("[").map(|_| Punctuation::OpenBracket),
+        just("]").map(|_| Punctuation::CloseBracket),
+        just("(").map(|_| Punctuation::OpenParen),
+        just(")").map(|_| Punctuation::CloseParen),
+        just("#").map(|_| Punctuation::Hash),
+        just("@").map(|_| Punctuation::At),
+        just(";").map(|_| Punctuation::Semicolon),
+        just(",").map(|_| Punctuation::Comma),
+        just("?").map(|_| Punctuation::Question),
+    ))
+    .map_with_span(move |x: Punctuation, span: SimpleSpan| Spanned {
         span: Span {
             source: source_id.clone(),
             start: span.start(),
             end: span.end(),
         },
-        value: Token::Ident(ident),
+        value: Token::Symbol(Symbol::Punctuation(x)),
     })
 }
 
-pub fn symbol(source_id: &Arc<PathBuf>) -> impl Parser<char, Spanned<Token>, Error = Simple<char>> {
-    let source_id = source_id.clone();
-    one_of::<_, _, Simple<char>>("+-*/=!<>&|^:.")
-        .repeated()
-        .at_least(1)
-        .try_map(move |x: Vec<char>, span| {
-            Ok(Spanned {
-                span: Span {
-                    source: source_id.clone(),
-                    start: span.start(),
-                    end: span.end(),
-                },
-                value: Token::Symbol(match x.into_iter().collect::<String>().as_str() {
-                    "==" => Symbol::Comparison(Comparison::Equal),
-                    "!=" => Symbol::Comparison(Comparison::NotEqual),
-                    "&&" => Symbol::Logical(Logical::And),
-                    "||" => Symbol::Logical(Logical::Or),
-                    "+=" => Symbol::Assignment(Assignment::AddAssign),
-                    "-=" => Symbol::Assignment(Assignment::SubAssign),
-                    "*=" => Symbol::Assignment(Assignment::MulAssign),
-                    "/=" => Symbol::Assignment(Assignment::DivAssign),
-                    "%=" => Symbol::Assignment(Assignment::ModAssign),
-                    "&=" => Symbol::Assignment(Assignment::AndAssign),
-                    "|=" => Symbol::Assignment(Assignment::OrAssign),
-                    "^=" => Symbol::Assignment(Assignment::XorAssign),
-                    "<<=" => Symbol::Assignment(Assignment::ShlAssign),
-                    ">>=" => Symbol::Assignment(Assignment::ShrAssign),
-                    ">>" => Symbol::Bitwise(Bitwise::ShiftRight),
-                    "<<" => Symbol::Bitwise(Bitwise::ShiftLeft),
-                    "<=" => Symbol::Comparison(Comparison::LessThanOrEqual),
-                    ">=" => Symbol::Comparison(Comparison::GreaterThanOrEqual),
-                    "=" => Symbol::Assignment(Assignment::Assign),
-                    "+" => Symbol::Arithmetic(Arithmetic::Plus),
-                    "-" => Symbol::Arithmetic(Arithmetic::Minus),
-                    "*" => Symbol::Arithmetic(Arithmetic::Times),
-                    "/" => Symbol::Arithmetic(Arithmetic::Divide),
-                    "!" => Symbol::Logical(Logical::Not),
-                    "<" => Symbol::Comparison(Comparison::LessThan),
-                    ">" => Symbol::Comparison(Comparison::GreaterThan),
-                    "&" => Symbol::Bitwise(Bitwise::And),
-                    "|" => Symbol::Bitwise(Bitwise::Or),
-                    "^" => Symbol::Bitwise(Bitwise::Xor),
-                    "..." => Symbol::Punctuation(Punctuation::Ellipsis),
-                    "." => Symbol::Punctuation(Punctuation::Dot),
-                    "::" => Symbol::Punctuation(Punctuation::DoubleColon),
-                    ":" => Symbol::Punctuation(Punctuation::Colon),
-                    igl => {
-                        return Err(chumsky::error::Simple::custom(
-                            span,
-                            format!("Invalid symbol {}", igl),
-                        ))
-                    }
-                }),
-            })
-        })
+pub fn ident<'src>(source_id: Arc<PathBuf>) -> impl Parser<'src, &'src str, Spanned<Token>> {
+    text::ident().map_with_span(move |ident: &'src str, span: SimpleSpan| Spanned {
+        span: Span {
+            source: source_id.clone(),
+            start: span.start(),
+            end: span.end(),
+        },
+        value: Token::Ident(ident.to_owned()),
+    })
 }
 
-pub fn int_literal(
-    source_id: &Arc<PathBuf>,
-) -> impl Parser<char, Spanned<Token>, Error = Simple<char>> {
+pub fn symbol<'src>(source_id: Arc<PathBuf>) -> impl Parser<'src, &'src str, Spanned<Token>> {
+    let source_id = source_id.clone();
+
+    choice((
+        choice((
+            just("==").map(|_| Symbol::Comparison(Comparison::Equal)),
+            just("!=").map(|_| Symbol::Comparison(Comparison::NotEqual)),
+            just("&&").map(|_| Symbol::Logical(Logical::And)),
+            just("||").map(|_| Symbol::Logical(Logical::Or)),
+            just("+=").map(|_| Symbol::Assignment(Assignment::AddAssign)),
+            just("-=").map(|_| Symbol::Assignment(Assignment::SubAssign)),
+            just("*=").map(|_| Symbol::Assignment(Assignment::MulAssign)),
+            just("/=").map(|_| Symbol::Assignment(Assignment::DivAssign)),
+            just("%=").map(|_| Symbol::Assignment(Assignment::ModAssign)),
+            just("|=").map(|_| Symbol::Assignment(Assignment::OrAssign)),
+            just("^=").map(|_| Symbol::Assignment(Assignment::XorAssign)),
+            just("<<=").map(|_| Symbol::Assignment(Assignment::ShlAssign)),
+            just(">>=").map(|_| Symbol::Assignment(Assignment::ShrAssign)),
+        )),
+        choice((
+            just("<<").map(|_| Symbol::Bitwise(Bitwise::ShiftLeft)),
+            just(">>").map(|_| Symbol::Bitwise(Bitwise::ShiftRight)),
+            just("<=").map(|_| Symbol::Comparison(Comparison::LessThanOrEqual)),
+            just(">=").map(|_| Symbol::Comparison(Comparison::GreaterThanOrEqual)),
+            just("=").map(|_| Symbol::Assignment(Assignment::Assign)),
+            just("+").map(|_| Symbol::Arithmetic(Arithmetic::Plus)),
+            just("-").map(|_| Symbol::Arithmetic(Arithmetic::Minus)),
+            just("*").map(|_| Symbol::Arithmetic(Arithmetic::Times)),
+            just("/").map(|_| Symbol::Arithmetic(Arithmetic::Divide)),
+            just("!").map(|_| Symbol::Logical(Logical::Not)),
+            just("<").map(|_| Symbol::Comparison(Comparison::LessThan)),
+            just(">").map(|_| Symbol::Comparison(Comparison::GreaterThan)),
+            just("&").map(|_| Symbol::Bitwise(Bitwise::And)),
+            just("|").map(|_| Symbol::Bitwise(Bitwise::Or)),
+            just("^").map(|_| Symbol::Bitwise(Bitwise::Xor)),
+            just("...").map(|_| Symbol::Punctuation(Punctuation::Ellipsis)),
+            just(".").map(|_| Symbol::Punctuation(Punctuation::Dot)),
+            just("::").map(|_| Symbol::Punctuation(Punctuation::DoubleColon)),
+            just(":").map(|_| Symbol::Punctuation(Punctuation::Colon)),
+        )),
+    ))
+    .map_with_span(move |sym, span: SimpleSpan| Spanned {
+        span: Span {
+            source: source_id.clone(),
+            start: span.start(),
+            end: span.end(),
+        },
+        value: Token::Symbol(sym),
+    })
+}
+
+pub fn int_literal<'src>(source_id: Arc<PathBuf>) -> impl Parser<'src, &'src str, Spanned<Token>> {
     let source_id = source_id.clone();
     text::int(10)
-        .map_with_span(move |num: String, span: Range<usize>| Spanned {
+        .map_with_span(move |num: &'src str, span: SimpleSpan| Spanned {
             span: Span {
                 source: source_id.clone(),
                 start: span.start(),
@@ -639,18 +639,18 @@ pub fn int_literal(
             },
             value: Token::Literal(Literal::Int(num.parse().unwrap())),
         })
-        .then_ignore(filter(|c: &char| c.is_whitespace()))
+        .then_ignore(any().filter(|c: &char| c.is_whitespace()))
 }
 
-pub fn float_literal(
-    source_id: &Arc<PathBuf>,
-) -> impl Parser<char, Spanned<Token>, Error = Simple<char>> {
+pub fn float_literal<'src>(
+    source_id: Arc<PathBuf>,
+) -> impl Parser<'src, &'src str, Spanned<Token>> {
     let source_id = source_id.clone();
     text::int(10)
         .then_ignore(just('.'))
         .then(text::int(10).or_not())
-        .map(move |(a, b)| format!("{}.{}", a, b.unwrap_or("".to_owned())))
-        .map_with_span(move |num: String, span: Range<usize>| Spanned {
+        .map(move |(a, b)| format!("{}.{}", a, b.unwrap_or("")))
+        .map_with_span(move |num: String, span: SimpleSpan| Spanned {
             span: Span {
                 source: source_id.clone(),
                 start: span.start(),
@@ -660,31 +660,26 @@ pub fn float_literal(
         })
 }
 
-pub fn str_literal(
-    source_id: &Arc<PathBuf>,
-) -> impl Parser<char, Spanned<Token>, Error = Simple<char>> {
+pub fn str_literal<'src>(source_id: Arc<PathBuf>) -> impl Parser<'src, &'src str, Spanned<Token>> {
     let source_id = source_id.clone();
-    just('"')
-        .ignore_then(none_of('"').repeated())
-        .then_ignore(just('"'))
-        .map_with_span(move |s: Vec<char>, span: Range<usize>| Spanned {
+    just("\"")
+        .then(any().repeated())
+        .then_ignore(just("\""))
+        .map_with_span(move |(s, _), span: SimpleSpan| Spanned {
             span: Span {
                 source: source_id.clone(),
                 start: span.start(),
                 end: span.end(),
             },
-            value: Token::Literal(Literal::String(s.into_iter().collect())),
+            value: Token::Literal(Literal::String(s.to_owned())),
         })
 }
 
-pub fn char_literal(
-    source_id: &Arc<PathBuf>,
-) -> impl Parser<char, Spanned<Token>, Error = Simple<char>> {
-    let source_id = source_id.clone();
-    just::<_, _, Simple<char>>('\'')
+pub fn char_literal<'src>(source_id: Arc<PathBuf>) -> impl Parser<'src, &'src str, Spanned<Token>> {
+    just('\'')
         .ignore_then(none_of('\''))
         .then_ignore(just('\''))
-        .map_with_span(move |s: char, span: Range<usize>| Spanned {
+        .map_with_span(move |s: char, span: SimpleSpan| Spanned {
             span: Span {
                 source: source_id.clone(),
                 start: span.start(),
@@ -694,36 +689,36 @@ pub fn char_literal(
         })
 }
 
-pub fn token(s: &Arc<PathBuf>) -> impl Parser<char, Spanned<Token>, Error = Simple<char>> {
+pub fn token<'src>(s: Arc<PathBuf>) -> impl Parser<'src, &'src str, Spanned<Token>> {
     choice((
-        vis(s),
-        kw(s),
-        punctuation(s),
-        symbol(s),
-        ident(s),
-        bool_literal(s),
-        str_literal(s),
-        char_literal(s),
-        float_literal(s),
-        int_literal(s),
+        vis(s.clone()),
+        kw(s.clone()),
+        punctuation(s.clone()),
+        symbol(s.clone()),
+        ident(s.clone()),
+        bool_literal(s.clone()),
+        str_literal(s.clone()),
+        char_literal(s.clone()),
+        float_literal(s.clone()),
+        int_literal(s.clone()),
     ))
 }
 
-pub fn lexer(s: &Arc<PathBuf>) -> impl Parser<char, Vec<Spanned<Token>>, Error = Simple<char>> {
+pub fn lexer<'src>(s: Arc<PathBuf>) -> impl Parser<'src, &'src str, Vec<Spanned<Token>>> {
     let comment = just("//").then(none_of('\n').repeated()).padded();
     token(s)
         .padded_by(comment.repeated())
         .padded()
         // If we encounter an error, skip and attempt to lex the next character as a token instead
         .repeated()
+        .collect::<Vec<Spanned<Token>>>()
         // Run all the way to end
         .then_ignore(end())
 }
 
-pub fn lex(source: &Source, source_id: &Path) -> Result<LexerOutput, anyhow::Error> {
-    let source_id = Arc::new(source_id.to_owned());
-
-    let source = source.chars().collect::<String>();
-
-    Ok(lexer(&source_id).parse_recovery_verbose(source))
+pub fn lex<'src>(
+    source: &'src String,
+    source_id: Arc<PathBuf>,
+) -> Result<ParseResult<Vec<Spanned<Token>>, EmptyErr>> {
+    Ok(lexer(source_id).parse(source)) //.parse_recovery_verbose(source))
 }
