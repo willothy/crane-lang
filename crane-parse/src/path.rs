@@ -1,111 +1,197 @@
 use std::fmt::Display;
 
+use chumsky::{
+    input::BoxedStream,
+    primitive::{choice, just},
+    IterParser, Parser,
+};
+use crane_lex::Token;
+
+use crate::ParserExtra;
+
 #[derive(Debug, PartialEq, Clone)]
-pub enum ItemPath {
-    /// Starting with root::
-    Absolute(Vec<String>),
-    /// Starting with self:: or nothing
-    Relative(Vec<String>),
-    /// Starting with :: followed by an external package name
-    External(Vec<String>),
-    /// Single identifier (name expected to be in scope)
-    Name(String),
+pub enum PathPart {
+    Root,
+    Self_,
+    Super,
+    External,
+    Named(String),
+}
+
+impl<T: AsRef<str> + Into<String>> From<T> for PathPart {
+    fn from(s: T) -> Self {
+        match s.as_ref() {
+            "root" => PathPart::Root,
+            "self" => PathPart::Self_,
+            "super" => PathPart::Super,
+            "::" => PathPart::External,
+            _ => PathPart::Named(s.into()),
+        }
+    }
+}
+
+impl Display for PathPart {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            PathPart::Root => write!(f, "root"),
+            PathPart::Self_ => write!(f, "self"),
+            PathPart::Super => write!(f, "super"),
+            PathPart::External => write!(f, ""),
+            PathPart::Named(name) => write!(f, "{}", name),
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Clone)]
+pub struct ItemPath {
+    pub parts: Vec<PathPart>,
+}
+
+impl From<Vec<PathPart>> for ItemPath {
+    fn from(parts: Vec<PathPart>) -> Self {
+        Self { parts }
+    }
+}
+
+pub fn path<'src>() -> impl Parser<'src, BoxedStream<'src, Token>, ItemPath, ParserExtra<'src>> {
+    choice((
+        just(Token::Symbol(crane_lex::Symbol::Punctuation(
+            crane_lex::Punctuation::DoubleColon,
+        )))
+        .map(|_| PathPart::External),
+        just(Token::Keyword(crane_lex::Keyword::Root)).map(|_| PathPart::Root),
+        just(Token::Keyword(crane_lex::Keyword::Self_)).map(|_| PathPart::Self_),
+        just(Token::Keyword(crane_lex::Keyword::Super)).map(|_| PathPart::Super),
+        chumsky::primitive::any()
+            .filter(|t| matches!(t, Token::Ident(_)))
+            .map(|t| {
+                PathPart::Named(match t {
+                    Token::Ident(s) => s,
+                    _ => unreachable!(),
+                })
+            }),
+    ))
+    .then_ignore(
+        just(Token::Symbol(crane_lex::Symbol::Punctuation(
+            crane_lex::Punctuation::DoubleColon,
+        )))
+        .or_not(),
+    )
+    .then(
+        choice((
+            just(Token::Keyword(crane_lex::Keyword::Super)).map(|_| PathPart::Super),
+            chumsky::primitive::any()
+                .filter(|t| matches!(t, Token::Ident(_)))
+                .map(|t| {
+                    PathPart::Named(match t {
+                        Token::Ident(s) => s,
+                        _ => unreachable!(),
+                    })
+                }),
+        ))
+        .separated_by(just(Token::Symbol(crane_lex::Symbol::Punctuation(
+            crane_lex::Punctuation::DoubleColon,
+        ))))
+        .at_least(0)
+        .collect::<Vec<_>>(),
+    )
+    .map(|(first, rest)| ItemPath::from(std::iter::once(first).chain(rest).collect::<Vec<_>>()))
+}
+
+impl ItemPath {
+    pub fn new() -> Self {
+        Self { parts: Vec::new() }
+    }
+
+    pub fn push(&mut self, part: PathPart) {
+        self.parts.push(part);
+    }
+
+    pub fn pop(&mut self) -> Option<PathPart> {
+        self.parts.pop()
+    }
+
+    pub fn insert(&mut self, index: usize, part: PathPart) {
+        self.parts.insert(index, part);
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.parts.is_empty()
+    }
+
+    pub fn len(&self) -> usize {
+        self.parts.len()
+    }
+
+    pub fn is_absolute(&self) -> bool {
+        !self.parts.is_empty() && self.parts[0] == PathPart::Root
+    }
+
+    pub fn is_relative(&self) -> bool {
+        !self.parts.is_empty()
+            && matches!(
+                self.parts[0],
+                PathPart::Named(_) | PathPart::Self_ | PathPart::Super
+            )
+    }
+
+    pub fn is_external(&self) -> bool {
+        !self.parts.is_empty() && self.parts[0] == PathPart::Root
+    }
+
+    /// Ensure the path is valid (no root:: or self:: after start, not just root / self / super)
+    pub fn validate(&self) -> anyhow::Result<()> {
+        enum Kind {
+            Extern,
+            Absolute,
+            Relative(bool),
+        }
+        let mut kind: Kind = Kind::Relative(false);
+        self.parts.iter().enumerate().try_for_each(|(idx, p)| {
+            if idx > 0 {
+                if let PathPart::Root | PathPart::Self_ | PathPart::External = p {
+                    return Err(anyhow::anyhow!(
+                        "Invalid path: {} at position {}",
+                        p,
+                        idx + 1
+                    ));
+                }
+            } else {
+                kind = match p {
+                    PathPart::Root => Kind::Absolute,
+                    PathPart::External => Kind::Extern,
+                    PathPart::Self_ => Kind::Relative(false),
+                    PathPart::Super => Kind::Relative(true),
+                    PathPart::Named(_) => Kind::Relative(false),
+                }
+            }
+            match kind {
+                Kind::Extern => {}
+                Kind::Absolute => {}
+                Kind::Relative(is_super) if idx > 0 && !is_super => {
+                    if let PathPart::Super = p {
+                        return Err(anyhow::anyhow!(
+                            "Invalid path: {} at position {}",
+                            p,
+                            idx + 1
+                        ));
+                    }
+                }
+                Kind::Relative(_) => {}
+            }
+            Ok(())
+        })
+    }
 }
 
 impl Display for ItemPath {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            ItemPath::Absolute(path) => {
-                for (i, part) in path.iter().enumerate() {
-                    if i > 0 {
-                        write!(f, "::")?;
-                    }
-                    write!(f, "{}", part)?;
-                }
-            }
-            ItemPath::Relative(path) => {
-                for (i, part) in path.iter().enumerate() {
-                    if i > 0 {
-                        write!(f, "::")?;
-                    }
-                    write!(f, "{}", part)?;
-                }
-            }
-            ItemPath::External(path) => {
+        for (idx, part) in self.parts.iter().enumerate() {
+            if idx > 0 {
                 write!(f, "::")?;
-                for (i, part) in path.iter().enumerate() {
-                    if i > 0 {
-                        write!(f, "::")?;
-                    }
-                    write!(f, "{}", part)?;
-                }
             }
-            ItemPath::Name(name) => write!(f, "{}", name)?,
+            write!(f, "{}", part)?;
         }
         Ok(())
-    }
-}
-
-/// Item path starting with root:: or :: (external)
-/// Guaranteed to be absolute
-#[derive(Debug, PartialEq, Eq, Hash)]
-pub enum AbsoluteItemPath {
-    Absolute(Vec<String>),
-    External(Vec<String>),
-}
-
-impl TryInto<AbsoluteItemPath> for ItemPath {
-    type Error = ();
-
-    fn try_into(self) -> Result<AbsoluteItemPath, Self::Error> {
-        match self {
-            ItemPath::Absolute(path) => Ok(AbsoluteItemPath::Absolute(path)),
-            ItemPath::External(path) => Ok(AbsoluteItemPath::External(path)),
-            _ => Err(()),
-        }
-    }
-}
-
-impl ItemPath {
-    pub fn name(&self) -> Option<&String> {
-        match self {
-            ItemPath::Absolute(path) => path.last(),
-            ItemPath::Relative(path) => path.last(),
-            ItemPath::External(path) => path.last(),
-            ItemPath::Name(name) => Some(name),
-        }
-    }
-
-    pub fn into_absolute(self) -> Option<AbsoluteItemPath> {
-        match self {
-            ItemPath::Absolute(path) => Some(AbsoluteItemPath::Absolute(path)),
-            ItemPath::External(path) => Some(AbsoluteItemPath::External(path)),
-            _ => None,
-        }
-    }
-
-    pub fn root(&self) -> Option<&String> {
-        match self {
-            ItemPath::Absolute(path) => path.first(),
-            ItemPath::Relative(path) => path.first(),
-            ItemPath::External(path) => path.first(),
-            ItemPath::Name(_) => None,
-        }
-    }
-
-    pub fn is_absolute(&self) -> bool {
-        matches!(self, ItemPath::Absolute(_))
-    }
-
-    pub fn is_relative(&self) -> bool {
-        matches!(self, ItemPath::Relative(_))
-    }
-
-    pub fn is_external(&self) -> bool {
-        matches!(self, ItemPath::External(_))
-    }
-
-    pub fn is_name(&self) -> bool {
-        matches!(self, ItemPath::Name(_))
     }
 }

@@ -32,17 +32,29 @@ pub enum Expr {
         lhs: NodeId,
         rhs: NodeId,
     },
-    AssignmentOp {
+    Assignment {
         lhs: NodeId,
         op: AssignOp,
         rhs: NodeId,
     },
+    Let {
+        name: String,
+        ty: ItemPath,
+        value: Option<NodeId>,
+    },
+    Break {
+        value: Option<NodeId>,
+    },
+    Return {
+        value: Option<NodeId>,
+    },
+    Continue,
     Cast {
         ty: ItemPath,
         expr: NodeId,
     },
     Block {
-        stmts: Vec<NodeId>,
+        exprs: Vec<NodeId>,
     },
     If {
         cond: NodeId,
@@ -60,4 +72,8 @@ pub enum Expr {
         object: NodeId,
         member: NodeId,
     },
+    List {
+        exprs: Vec<NodeId>,
+    },
+    Error,
 }

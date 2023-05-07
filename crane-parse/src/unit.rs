@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use slotmap::{new_key_type, SlotMap};
 
-use crate::{ASTNode, Expr, Item, Stmt};
+use crate::{ASTNode, Expr, Item};
 
 new_key_type! {
     pub struct UnitId;
@@ -51,9 +51,5 @@ impl Unit {
 
     pub fn new_expr(&mut self, expr: Expr) -> NodeId {
         self.ast_nodes.insert(ASTNode::Expr(expr))
-    }
-
-    pub fn new_stmt(&mut self, stmt: Stmt) -> NodeId {
-        self.ast_nodes.insert(ASTNode::Stmt(stmt))
     }
 }

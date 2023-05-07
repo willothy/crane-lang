@@ -401,36 +401,43 @@ impl ariadne::Span for Span {
 }
 
 #[derive(Debug, Clone)]
-pub struct Spanned<T> {
-    pub span: Span,
+pub struct Spanned<T, S> {
+    pub span: S,
     pub value: T,
 }
 
-impl<T> Spanned<T> {
-    pub fn split(self) -> (T, Span) {
+impl<T, S> Spanned<T, S> {
+    pub fn split(self) -> (T, S) {
         (self.value, self.span)
     }
 }
 
-pub trait SplitSpanned<T> {
-    fn split_spanned(self) -> Vec<(T, Span)>;
+pub trait SplitSpanned<T, S> {
+    fn split_spanned(self) -> (Vec<T>, Vec<S>);
 }
 
-impl SplitSpanned<Token> for Vec<Spanned<Token>> {
-    fn split_spanned(self) -> Vec<(Token, Span)> {
-        self.into_iter()
-            .map(|t| -> (Token, Span) { t.split() })
-            .collect()
+impl<T, S> SplitSpanned<T, S> for Vec<Spanned<T, S>> {
+    fn split_spanned(self) -> (Vec<T>, Vec<S>) {
+        self.into_iter().map(|s| (s.value, s.span)).unzip()
     }
 }
 
-pub trait IntoStream<I> {
-    fn into_stream<'a>(self) -> BoxedStream<'a, I>;
+pub trait IntoStream<'a, I> {
+    fn into_stream(self) -> BoxedStream<'a, I>;
 }
 
-impl IntoStream<(Token, Span)> for Vec<Spanned<Token>> {
-    fn into_stream<'a>(self) -> BoxedStream<'a, (Token, Span)> {
-        let iter: Box<dyn Iterator<Item = _>> = Box::new(self.split_spanned().into_iter());
+// impl<'a, T: 'a, S: 'a> IntoStream<'a, (T, S)> for Vec<Spanned<T, S>> {
+//     fn into_stream(self) -> BoxedStream<'a, (T, S)> {
+//         let iter: Box<dyn Iterator<Item = _>> = Box::new(self.split_spanned().into_iter());
+//         let stream = Stream::from_iter(iter);
+//         let boxed = BoxedStream::boxed(stream);
+//         boxed
+//     }
+// }
+
+impl<'a, T: 'a> IntoStream<'a, T> for Vec<T> {
+    fn into_stream(self) -> BoxedStream<'a, T> {
+        let iter: Box<dyn Iterator<Item = _>> = Box::new(self.into_iter());
         let stream = Stream::from_iter(iter);
         let boxed = BoxedStream::boxed(stream);
         boxed
@@ -444,7 +451,7 @@ pub type LexerError<'src> = error::Simple<'src, char>; //error::Rich<'src, E>;
 pub type LexerCtx = ();
 pub type LexerExtra<'src> = extra::Full<LexerError<'src>, LexerState, LexerCtx>;
 
-pub type LexerResult<'src> = ParseResult<Vec<Spanned<Token>>, LexerError<'src>>;
+pub type LexerResult<'src> = ParseResult<Vec<Spanned<Token, Span>>, LexerError<'src>>;
 
 pub struct LexerState {
     source_id: Arc<PathBuf>,
@@ -473,7 +480,7 @@ pub fn lex<'src>(source: &'src str, source_id: impl AsRef<str>) -> Result<LexerR
 //     lex(&s, Arc::new(path))
 // }
 
-pub fn kw<'src>() -> impl Parser<'src, &'src str, Spanned<Token>, LexerExtra<'src>> {
+pub fn kw<'src>() -> impl Parser<'src, &'src str, Spanned<Token, Span>, LexerExtra<'src>> {
     choice((
         keyword("fn").map(|_| Keyword::Fn),
         keyword("let").map(|_| Keyword::Let),
@@ -508,7 +515,7 @@ pub fn kw<'src>() -> impl Parser<'src, &'src str, Spanned<Token>, LexerExtra<'sr
     )
 }
 
-pub fn vis<'src>() -> impl Parser<'src, &'src str, Spanned<Token>, LexerExtra<'src>> {
+pub fn vis<'src>() -> impl Parser<'src, &'src str, Spanned<Token, Span>, LexerExtra<'src>> {
     keyword("pub").map_with_state(move |_, span: SimpleSpan, state: &mut LexerState| Spanned {
         span: Span {
             source: state.source_id.clone(),
@@ -519,7 +526,8 @@ pub fn vis<'src>() -> impl Parser<'src, &'src str, Spanned<Token>, LexerExtra<'s
     })
 }
 
-pub fn bool_literal<'src>() -> impl Parser<'src, &'src str, Spanned<Token>, LexerExtra<'src>> {
+pub fn bool_literal<'src>() -> impl Parser<'src, &'src str, Spanned<Token, Span>, LexerExtra<'src>>
+{
     choice((
         keyword("true").map(|_| Literal::Bool(true)),
         keyword("false").map(|_| Literal::Bool(false)),
@@ -536,7 +544,7 @@ pub fn bool_literal<'src>() -> impl Parser<'src, &'src str, Spanned<Token>, Lexe
     )
 }
 
-pub fn punctuation<'src>() -> impl Parser<'src, &'src str, Spanned<Token>, LexerExtra<'src>> {
+pub fn punctuation<'src>() -> impl Parser<'src, &'src str, Spanned<Token, Span>, LexerExtra<'src>> {
     choice((
         just("{").map(|_| Punctuation::OpenBrace),
         just("}").map(|_| Punctuation::CloseBrace),
@@ -562,7 +570,7 @@ pub fn punctuation<'src>() -> impl Parser<'src, &'src str, Spanned<Token>, Lexer
     )
 }
 
-pub fn ident<'src>() -> impl Parser<'src, &'src str, Spanned<Token>, LexerExtra<'src>> {
+pub fn ident<'src>() -> impl Parser<'src, &'src str, Spanned<Token, Span>, LexerExtra<'src>> {
     text::ident().map_with_state(
         move |ident: &'src str, span: SimpleSpan, state: &mut LexerState| Spanned {
             span: Span {
@@ -575,9 +583,10 @@ pub fn ident<'src>() -> impl Parser<'src, &'src str, Spanned<Token>, LexerExtra<
     )
 }
 
-pub fn symbol<'src>() -> impl Parser<'src, &'src str, Spanned<Token>, LexerExtra<'src>> {
+pub fn symbol<'src>() -> impl Parser<'src, &'src str, Spanned<Token, Span>, LexerExtra<'src>> {
     choice((
         choice((
+            just("->").map(|_| Symbol::Punctuation(Punctuation::RightArrow)),
             just("==").map(|_| Symbol::Comparison(Comparison::Equal)),
             just("!=").map(|_| Symbol::Comparison(Comparison::NotEqual)),
             just("&&").map(|_| Symbol::Logical(Logical::And)),
@@ -626,22 +635,21 @@ pub fn symbol<'src>() -> impl Parser<'src, &'src str, Spanned<Token>, LexerExtra
     )
 }
 
-pub fn int_literal<'src>() -> impl Parser<'src, &'src str, Spanned<Token>, LexerExtra<'src>> {
-    text::int(10)
-        .map_with_state(
-            move |num: &'src str, span: SimpleSpan, state: &mut LexerState| Spanned {
-                span: Span {
-                    source: state.source_id.clone(),
-                    start: span.start(),
-                    end: span.end(),
-                },
-                value: Token::Literal(Literal::Int(num.parse().unwrap())),
+pub fn int_literal<'src>() -> impl Parser<'src, &'src str, Spanned<Token, Span>, LexerExtra<'src>> {
+    text::int(10).map_with_state(
+        move |num: &'src str, span: SimpleSpan, state: &mut LexerState| Spanned {
+            span: Span {
+                source: state.source_id.clone(),
+                start: span.start(),
+                end: span.end(),
             },
-        )
-        .then_ignore(any().filter(|c: &char| c.is_whitespace()))
+            value: Token::Literal(Literal::Int(num.parse().unwrap())),
+        },
+    )
 }
 
-pub fn float_literal<'src>() -> impl Parser<'src, &'src str, Spanned<Token>, LexerExtra<'src>> {
+pub fn float_literal<'src>() -> impl Parser<'src, &'src str, Spanned<Token, Span>, LexerExtra<'src>>
+{
     text::int(10)
         .then_ignore(just('.'))
         .then(text::int(10).or_not())
@@ -658,7 +666,7 @@ pub fn float_literal<'src>() -> impl Parser<'src, &'src str, Spanned<Token>, Lex
         )
 }
 
-pub fn str_literal<'src>() -> impl Parser<'src, &'src str, Spanned<Token>, LexerExtra<'src>> {
+pub fn str_literal<'src>() -> impl Parser<'src, &'src str, Spanned<Token, Span>, LexerExtra<'src>> {
     just("\"")
         .then(any().repeated())
         .then_ignore(just("\""))
@@ -674,7 +682,8 @@ pub fn str_literal<'src>() -> impl Parser<'src, &'src str, Spanned<Token>, Lexer
         )
 }
 
-pub fn char_literal<'src>() -> impl Parser<'src, &'src str, Spanned<Token>, LexerExtra<'src>> {
+pub fn char_literal<'src>() -> impl Parser<'src, &'src str, Spanned<Token, Span>, LexerExtra<'src>>
+{
     just('\'')
         .ignore_then(none_of('\''))
         .then_ignore(just('\''))
@@ -690,11 +699,11 @@ pub fn char_literal<'src>() -> impl Parser<'src, &'src str, Spanned<Token>, Lexe
         )
 }
 
-pub fn token<'src>() -> impl Parser<'src, &'src str, Spanned<Token>, LexerExtra<'src>> {
+pub fn token<'src>() -> impl Parser<'src, &'src str, Spanned<Token, Span>, LexerExtra<'src>> {
     choice((
+        punctuation(),
         vis(),
         kw(),
-        punctuation(),
         symbol(),
         ident(),
         bool_literal(),
@@ -705,14 +714,14 @@ pub fn token<'src>() -> impl Parser<'src, &'src str, Spanned<Token>, LexerExtra<
     ))
 }
 
-pub fn lexer<'src>() -> impl Parser<'src, &'src str, Vec<Spanned<Token>>, LexerExtra<'src>> {
+pub fn lexer<'src>() -> impl Parser<'src, &'src str, Vec<Spanned<Token, Span>>, LexerExtra<'src>> {
     let comment = just("//").then(none_of('\n').repeated()).padded();
     token()
         .padded_by(comment.repeated())
         .padded()
         // If we encounter an error, skip and attempt to lex the next character as a token instead
         .repeated()
-        .collect::<Vec<Spanned<Token>>>()
+        .collect::<Vec<Spanned<Token, Span>>>()
         // Run all the way to end
         .then_ignore(end())
 }
