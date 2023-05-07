@@ -1,5 +1,8 @@
 use anyhow::Result;
-use chumsky::input::{BoxedStream, Stream};
+use chumsky::{
+    error,
+    input::{BoxedStream, Stream},
+};
 use std::hash::Hash;
 use std::path::PathBuf;
 
@@ -327,7 +330,7 @@ use std::{
     sync::{Arc, RwLock},
 };
 
-use ariadne::{Cache, FileCache};
+use ariadne::FileCache;
 use chumsky::prelude::*;
 
 #[derive(Clone, Debug, PartialEq)]
@@ -436,26 +439,41 @@ impl IntoStream<(Token, Span)> for Vec<Spanned<Token>> {
 
 pub type Sources = Arc<RwLock<FileCache>>;
 
-pub type LexerOutput<'a> = ParseResult<Vec<Spanned<Token>>, EmptyErr>;
+pub type LexerError<'src> = error::Simple<'src, char>; //error::Rich<'src, E>;
+                                                       // pub type LexerState = String;
+pub type LexerCtx = ();
+pub type LexerExtra<'src> = extra::Full<LexerError<'src>, LexerState, LexerCtx>;
 
-pub fn lex_str(source: &str, source_id: impl AsRef<str>) -> Result<LexerOutput> {
-    let s = source.to_string();
-    lex(&s, Arc::new(PathBuf::from(source_id.as_ref())))
+pub type LexerResult<'src> = ParseResult<Vec<Spanned<Token>>, LexerError<'src>>;
+
+pub struct LexerState {
+    source_id: Arc<PathBuf>,
 }
 
-pub fn lex_file(files: Sources, path: &Path) -> Result<LexerOutput, anyhow::Error> {
-    let path = path.canonicalize().map_err(|e| anyhow::anyhow!("{}", e))?;
-    let mut files = files
-        .write()
-        .map_err(|_| anyhow::anyhow!("Failed to lock file cache"))?;
-    let source = files
-        .fetch(path.as_ref())
-        .map_err(|e| anyhow::anyhow!("{:?}", e))?;
-    let s = source.chars().collect();
-    lex(&s, Arc::new(path))
+impl LexerState {
+    pub fn new(source_id: Arc<PathBuf>) -> Self {
+        LexerState { source_id }
+    }
 }
 
-pub fn kw2<'src>() -> impl Parser<'src, &'src str, Keyword> {
+pub fn lex<'src>(source: &'src str, source_id: impl AsRef<str>) -> Result<LexerResult<'src>> {
+    let mut state = LexerState::new(Arc::new(PathBuf::from(source_id.as_ref())));
+    Ok(lexer().parse_with_state(source, &mut state))
+}
+
+// pub fn lex_file(files: Sources, path: &Path) -> Result<LexerOutput, anyhow::Error> {
+//     let path = path.canonicalize().map_err(|e| anyhow::anyhow!("{}", e))?;
+//     let mut files = files
+//         .write()
+//         .map_err(|_| anyhow::anyhow!("Failed to lock file cache"))?;
+//     let source = files
+//         .fetch(path.as_ref())
+//         .map_err(|e| anyhow::anyhow!("{:?}", e))?;
+//     let s = source.chars().collect();
+//     lex(&s, Arc::new(path))
+// }
+
+pub fn kw<'src>() -> impl Parser<'src, &'src str, Spanned<Token>, LexerExtra<'src>> {
     choice((
         keyword("fn").map(|_| Keyword::Fn),
         keyword("let").map(|_| Keyword::Let),
@@ -478,47 +496,22 @@ pub fn kw2<'src>() -> impl Parser<'src, &'src str, Keyword> {
         keyword("as").map(|_| Keyword::As),
         keyword("impl").map(|_| Keyword::Impl),
     ))
-}
-
-pub fn kw<'src>(source_id: Arc<PathBuf>) -> impl Parser<'src, &'src str, Spanned<Token>> {
-    let source_id = source_id.clone();
-    choice((
-        keyword("fn").map(|_| Keyword::Fn),
-        keyword("let").map(|_| Keyword::Let),
-        keyword("if").map(|_| Keyword::If),
-        keyword("else").map(|_| Keyword::Else),
-        keyword("return").map(|_| Keyword::Return),
-        keyword("while").map(|_| Keyword::While),
-        keyword("for").map(|_| Keyword::For),
-        keyword("in").map(|_| Keyword::In),
-        keyword("break").map(|_| Keyword::Break),
-        keyword("loop").map(|_| Keyword::Loop),
-        keyword("continue").map(|_| Keyword::Continue),
-        keyword("mod").map(|_| Keyword::Mod),
-        keyword("struct").map(|_| Keyword::Struct),
-        keyword("type").map(|_| Keyword::Type),
-        keyword("root").map(|_| Keyword::Root),
-        keyword("self").map(|_| Keyword::Self_),
-        keyword("super").map(|_| Keyword::Super),
-        keyword("use").map(|_| Keyword::Use),
-        keyword("as").map(|_| Keyword::As),
-        keyword("impl").map(|_| Keyword::Impl),
-    ))
-    .map_with_span(move |kw: Keyword, span: SimpleSpan| Spanned {
-        span: Span {
-            source: source_id.clone(),
-            start: span.start(),
-            end: span.end(),
+    .map_with_state(
+        move |kw: Keyword, span: SimpleSpan, state: &mut LexerState| Spanned {
+            span: Span {
+                source: state.source_id.clone(),
+                start: span.start(),
+                end: span.end(),
+            },
+            value: Token::Keyword(kw),
         },
-        value: Token::Keyword(kw),
-    })
+    )
 }
 
-pub fn vis<'src>(source_id: Arc<PathBuf>) -> impl Parser<'src, &'src str, Spanned<Token>> {
-    let source_id = source_id.clone();
-    keyword("pub").map_with_span(move |_, span: SimpleSpan| Spanned {
+pub fn vis<'src>() -> impl Parser<'src, &'src str, Spanned<Token>, LexerExtra<'src>> {
+    keyword("pub").map_with_state(move |_, span: SimpleSpan, state: &mut LexerState| Spanned {
         span: Span {
-            source: source_id.clone(),
+            source: state.source_id.clone(),
             start: span.start(),
             end: span.end(),
         },
@@ -526,23 +519,24 @@ pub fn vis<'src>(source_id: Arc<PathBuf>) -> impl Parser<'src, &'src str, Spanne
     })
 }
 
-pub fn bool_literal<'src>(source_id: Arc<PathBuf>) -> impl Parser<'src, &'src str, Spanned<Token>> {
+pub fn bool_literal<'src>() -> impl Parser<'src, &'src str, Spanned<Token>, LexerExtra<'src>> {
     choice((
         keyword("true").map(|_| Literal::Bool(true)),
         keyword("false").map(|_| Literal::Bool(false)),
     ))
-    .map_with_span(move |lit: Literal, span: SimpleSpan| Spanned {
-        span: Span {
-            source: source_id.clone(),
-            start: span.start(),
-            end: span.end(),
+    .map_with_state(
+        move |lit: Literal, span: SimpleSpan, state: &mut LexerState| Spanned {
+            span: Span {
+                source: state.source_id.clone(),
+                start: span.start(),
+                end: span.end(),
+            },
+            value: Token::Literal(lit),
         },
-        value: Token::Literal(lit),
-    })
+    )
 }
 
-pub fn punctuation<'src>(source_id: Arc<PathBuf>) -> impl Parser<'src, &'src str, Spanned<Token>> {
-    let source_id = source_id.clone();
+pub fn punctuation<'src>() -> impl Parser<'src, &'src str, Spanned<Token>, LexerExtra<'src>> {
     choice((
         just("{").map(|_| Punctuation::OpenBrace),
         just("}").map(|_| Punctuation::CloseBrace),
@@ -556,30 +550,32 @@ pub fn punctuation<'src>(source_id: Arc<PathBuf>) -> impl Parser<'src, &'src str
         just(",").map(|_| Punctuation::Comma),
         just("?").map(|_| Punctuation::Question),
     ))
-    .map_with_span(move |x: Punctuation, span: SimpleSpan| Spanned {
-        span: Span {
-            source: source_id.clone(),
-            start: span.start(),
-            end: span.end(),
+    .map_with_state(
+        move |x: Punctuation, span: SimpleSpan, state: &mut LexerState| Spanned {
+            span: Span {
+                source: state.source_id.clone(),
+                start: span.start(),
+                end: span.end(),
+            },
+            value: Token::Symbol(Symbol::Punctuation(x)),
         },
-        value: Token::Symbol(Symbol::Punctuation(x)),
-    })
+    )
 }
 
-pub fn ident<'src>(source_id: Arc<PathBuf>) -> impl Parser<'src, &'src str, Spanned<Token>> {
-    text::ident().map_with_span(move |ident: &'src str, span: SimpleSpan| Spanned {
-        span: Span {
-            source: source_id.clone(),
-            start: span.start(),
-            end: span.end(),
+pub fn ident<'src>() -> impl Parser<'src, &'src str, Spanned<Token>, LexerExtra<'src>> {
+    text::ident().map_with_state(
+        move |ident: &'src str, span: SimpleSpan, state: &mut LexerState| Spanned {
+            span: Span {
+                source: state.source_id.clone(),
+                start: span.start(),
+                end: span.end(),
+            },
+            value: Token::Ident(ident.to_owned()),
         },
-        value: Token::Ident(ident.to_owned()),
-    })
+    )
 }
 
-pub fn symbol<'src>(source_id: Arc<PathBuf>) -> impl Parser<'src, &'src str, Spanned<Token>> {
-    let source_id = source_id.clone();
-
+pub fn symbol<'src>() -> impl Parser<'src, &'src str, Spanned<Token>, LexerExtra<'src>> {
     choice((
         choice((
             just("==").map(|_| Symbol::Comparison(Comparison::Equal)),
@@ -618,95 +614,100 @@ pub fn symbol<'src>(source_id: Arc<PathBuf>) -> impl Parser<'src, &'src str, Spa
             just(":").map(|_| Symbol::Punctuation(Punctuation::Colon)),
         )),
     ))
-    .map_with_span(move |sym, span: SimpleSpan| Spanned {
-        span: Span {
-            source: source_id.clone(),
-            start: span.start(),
-            end: span.end(),
-        },
-        value: Token::Symbol(sym),
-    })
-}
-
-pub fn int_literal<'src>(source_id: Arc<PathBuf>) -> impl Parser<'src, &'src str, Spanned<Token>> {
-    let source_id = source_id.clone();
-    text::int(10)
-        .map_with_span(move |num: &'src str, span: SimpleSpan| Spanned {
+    .map_with_state(
+        move |sym, span: SimpleSpan, state: &mut LexerState| Spanned {
             span: Span {
-                source: source_id.clone(),
+                source: state.source_id.clone(),
                 start: span.start(),
                 end: span.end(),
             },
-            value: Token::Literal(Literal::Int(num.parse().unwrap())),
-        })
+            value: Token::Symbol(sym),
+        },
+    )
+}
+
+pub fn int_literal<'src>() -> impl Parser<'src, &'src str, Spanned<Token>, LexerExtra<'src>> {
+    text::int(10)
+        .map_with_state(
+            move |num: &'src str, span: SimpleSpan, state: &mut LexerState| Spanned {
+                span: Span {
+                    source: state.source_id.clone(),
+                    start: span.start(),
+                    end: span.end(),
+                },
+                value: Token::Literal(Literal::Int(num.parse().unwrap())),
+            },
+        )
         .then_ignore(any().filter(|c: &char| c.is_whitespace()))
 }
 
-pub fn float_literal<'src>(
-    source_id: Arc<PathBuf>,
-) -> impl Parser<'src, &'src str, Spanned<Token>> {
-    let source_id = source_id.clone();
+pub fn float_literal<'src>() -> impl Parser<'src, &'src str, Spanned<Token>, LexerExtra<'src>> {
     text::int(10)
         .then_ignore(just('.'))
         .then(text::int(10).or_not())
         .map(move |(a, b)| format!("{}.{}", a, b.unwrap_or("")))
-        .map_with_span(move |num: String, span: SimpleSpan| Spanned {
-            span: Span {
-                source: source_id.clone(),
-                start: span.start(),
-                end: span.end(),
+        .map_with_state(
+            move |num: String, span: SimpleSpan, state: &mut LexerState| Spanned {
+                span: Span {
+                    source: state.source_id.clone(),
+                    start: span.start(),
+                    end: span.end(),
+                },
+                value: Token::Literal(Literal::Float(num.parse().unwrap())),
             },
-            value: Token::Literal(Literal::Float(num.parse().unwrap())),
-        })
+        )
 }
 
-pub fn str_literal<'src>(source_id: Arc<PathBuf>) -> impl Parser<'src, &'src str, Spanned<Token>> {
-    let source_id = source_id.clone();
+pub fn str_literal<'src>() -> impl Parser<'src, &'src str, Spanned<Token>, LexerExtra<'src>> {
     just("\"")
         .then(any().repeated())
         .then_ignore(just("\""))
-        .map_with_span(move |(s, _), span: SimpleSpan| Spanned {
-            span: Span {
-                source: source_id.clone(),
-                start: span.start(),
-                end: span.end(),
+        .map_with_state(
+            move |(s, _), span: SimpleSpan, state: &mut LexerState| Spanned {
+                span: Span {
+                    source: state.source_id.clone(),
+                    start: span.start(),
+                    end: span.end(),
+                },
+                value: Token::Literal(Literal::String(s.to_owned())),
             },
-            value: Token::Literal(Literal::String(s.to_owned())),
-        })
+        )
 }
 
-pub fn char_literal<'src>(source_id: Arc<PathBuf>) -> impl Parser<'src, &'src str, Spanned<Token>> {
+pub fn char_literal<'src>() -> impl Parser<'src, &'src str, Spanned<Token>, LexerExtra<'src>> {
     just('\'')
         .ignore_then(none_of('\''))
         .then_ignore(just('\''))
-        .map_with_span(move |s: char, span: SimpleSpan| Spanned {
-            span: Span {
-                source: source_id.clone(),
-                start: span.start(),
-                end: span.end(),
+        .map_with_state(
+            move |s: char, span: SimpleSpan, state: &mut LexerState| Spanned {
+                span: Span {
+                    source: state.source_id.clone(),
+                    start: span.start(),
+                    end: span.end(),
+                },
+                value: Token::Literal(Literal::Char(s)),
             },
-            value: Token::Literal(Literal::Char(s)),
-        })
+        )
 }
 
-pub fn token<'src>(s: Arc<PathBuf>) -> impl Parser<'src, &'src str, Spanned<Token>> {
+pub fn token<'src>() -> impl Parser<'src, &'src str, Spanned<Token>, LexerExtra<'src>> {
     choice((
-        vis(s.clone()),
-        kw(s.clone()),
-        punctuation(s.clone()),
-        symbol(s.clone()),
-        ident(s.clone()),
-        bool_literal(s.clone()),
-        str_literal(s.clone()),
-        char_literal(s.clone()),
-        float_literal(s.clone()),
-        int_literal(s.clone()),
+        vis(),
+        kw(),
+        punctuation(),
+        symbol(),
+        ident(),
+        bool_literal(),
+        str_literal(),
+        char_literal(),
+        float_literal(),
+        int_literal(),
     ))
 }
 
-pub fn lexer<'src>(s: Arc<PathBuf>) -> impl Parser<'src, &'src str, Vec<Spanned<Token>>> {
+pub fn lexer<'src>() -> impl Parser<'src, &'src str, Vec<Spanned<Token>>, LexerExtra<'src>> {
     let comment = just("//").then(none_of('\n').repeated()).padded();
-    token(s)
+    token()
         .padded_by(comment.repeated())
         .padded()
         // If we encounter an error, skip and attempt to lex the next character as a token instead
@@ -714,11 +715,4 @@ pub fn lexer<'src>(s: Arc<PathBuf>) -> impl Parser<'src, &'src str, Vec<Spanned<
         .collect::<Vec<Spanned<Token>>>()
         // Run all the way to end
         .then_ignore(end())
-}
-
-pub fn lex<'src>(
-    source: &'src String,
-    source_id: Arc<PathBuf>,
-) -> Result<ParseResult<Vec<Spanned<Token>>, EmptyErr>> {
-    Ok(lexer(source_id).parse(source)) //.parse_recovery_verbose(source))
 }

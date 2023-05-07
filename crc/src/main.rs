@@ -7,7 +7,7 @@ fn main() -> anyhow::Result<()> {
     env_logger::init();
     let test = include_str!("../../test.cr");
 
-    let lexer_res = lex::lex_str(test, "test")?;
+    let lexer_res = lex::lex(test, "test")?;
 
     let errors = lexer_res.errors();
 
