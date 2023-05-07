@@ -9,6 +9,8 @@ use crate::{
     ASTNode, Expr, Item, NodeId,
 };
 
+use self::pass::{Inspect, Transform};
+
 #[derive(Debug)]
 pub struct Package {
     units: SlotMap<UnitId, Unit>,
@@ -24,9 +26,67 @@ impl Default for Package {
     }
 }
 
+pub mod pass {
+    use crate::unit::UnitId;
+
+    use super::Package;
+
+    pub trait Transform {
+        type Scope;
+        type Input;
+        fn transform(&mut self, scope: &mut Self::Scope, input: Self::Input);
+    }
+
+    pub trait Inspect {
+        type Scope;
+        type Input;
+        fn inspect(&mut self, scope: &Self::Scope, input: Self::Input);
+    }
+
+    pub struct PrintPackage;
+    pub struct PrintUnit;
+
+    impl Inspect for PrintUnit {
+        type Scope = Package;
+        type Input = UnitId;
+
+        fn inspect(&mut self, package: &Package, id: UnitId) {
+            let unit = package.units.get(id).unwrap();
+            let mut buf = String::new();
+            for member in unit.members().values().copied() {
+                package.print_node(id, member, 0, &mut buf, 0, false);
+            }
+            println!("{}", buf);
+        }
+    }
+
+    impl Inspect for PrintPackage {
+        type Scope = Package;
+        type Input = ();
+
+        fn inspect(&mut self, package: &Package, _: ()) {
+            let root = package.root;
+            let unit = package.units.get(root).unwrap();
+            let mut buf = String::new();
+            for member in unit.members().values().copied() {
+                package.print_node(root, member, 0, &mut buf, 0, false);
+            }
+            println!("{}", buf);
+        }
+    }
+}
+
 impl Package {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    pub fn inspect<P: Inspect<Scope = Package>>(&self, pass: &mut P, input: P::Input) {
+        pass.inspect(self, input);
+    }
+
+    pub fn transform<P: Transform<Scope = Package>>(&mut self, pass: &mut P, input: P::Input) {
+        pass.transform(self, input);
     }
 
     pub fn name(&self) -> &str {
@@ -396,15 +456,5 @@ impl Package {
             #[allow(unreachable_patterns)]
             _ => writeln!(out, "{}???", "  ".repeat(indent - 1)).unwrap(),
         };
-    }
-
-    pub fn dbg_print(&self) {
-        let root = self.root;
-        let unit = self.units.get(root).unwrap();
-        let mut writer = String::new();
-        for member in unit.members().values().copied() {
-            self.print_node(root, member, 0, &mut writer, 0, false);
-        }
-        println!("{}", writer);
     }
 }

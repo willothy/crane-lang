@@ -1,7 +1,10 @@
 use crane_lex as lex;
 use crane_parse as parse;
 
-use parse::package::Package;
+use parse::package::{
+    pass::{PrintPackage, PrintUnit},
+    Package,
+};
 
 fn main() -> anyhow::Result<()> {
     env_logger::init();
@@ -51,6 +54,6 @@ fn main() -> anyhow::Result<()> {
     // println!("{:#?}", package);
 
     println!("Reconstructed from AST:\n");
-    package.dbg_print();
+    package.inspect(&mut PrintPackage, ());
     Ok(())
 }
