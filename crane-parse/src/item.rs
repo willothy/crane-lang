@@ -18,7 +18,7 @@ pub enum Item {
         name: ItemPath,
         params: Vec<(String, ItemPath)>,
         ret_ty: Option<ItemPath>,
-        body: Vec<NodeId>,
+        body: NodeId,
     },
     FunctionDecl {
         vis: Visibility,

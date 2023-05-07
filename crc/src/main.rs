@@ -11,6 +11,9 @@ fn main() -> anyhow::Result<()> {
 
     let errors = lexer_res.errors();
 
+    if errors.len() > 0 {
+        println!("Encountered lexer errors");
+    }
     for error in errors {
         println!("{}", error);
     }
@@ -21,24 +24,33 @@ fn main() -> anyhow::Result<()> {
 
     let tokens = lexer_res.into_output().unwrap();
 
-    println!(
-        "{:#?}",
-        tokens.iter().rev().take(5).rev().collect::<Vec<_>>()
-    );
-
-    // use lex::IntoStream;
-    // let mut stream = tokens.into_stream();
-    // stream.fetch_tokens().for_each(|t| {
-    //     println!("{:#?}", t);
-    // });
+    // println!(
+    //     "{:#?}",
+    //     tokens
+    //         .iter() /* .rev().take(5).rev()*/
+    //         .collect::<Vec<_>>()
+    // );
 
     let mut package = Package::new();
 
-    let mut parser = parse::Parser::new(tokens, &mut package);
-    let parsed = parser.parse_unit("bingus".into(), None)?;
-    let unit = package.unit(parsed).unwrap();
+    let parsed = parse::parse(tokens, &mut package, "test".to_owned())?;
+    let errors = parsed.errors();
+    if errors.len() > 0 {
+        println!("Encountered parse errors");
+    }
 
-    println!("{:#?}", unit);
+    for error in errors {
+        println!("{}", error);
+    }
+
+    // Inspect the unit / package AST trees
+    //
+    // let id = parsed.into_output().unwrap();
+    // let unit = package.unit(id).unwrap();
+    // println!("{:#?}", unit);
+    // println!("{:#?}", package);
+
+    println!("Reconstructed from AST:\n");
     package.dbg_print();
     Ok(())
 }
