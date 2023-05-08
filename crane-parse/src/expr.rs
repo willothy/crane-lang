@@ -76,4 +76,9 @@ pub enum Expr {
     List {
         exprs: Vec<NodeId>,
     },
+    Closure {
+        params: Vec<(String, TypeName)>,
+        ret_ty: Option<TypeName>,
+        body: NodeId,
+    },
 }

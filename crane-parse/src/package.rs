@@ -27,7 +27,7 @@ pub mod pass {
     use crate::{
         expr::Expr,
         item::Item,
-        path::{ItemPath, PathPart},
+        path::{ItemPath, PathPart, TypeName},
         unit::{NodeId, UnitId},
         ASTNode,
     };
@@ -370,6 +370,37 @@ pub mod pass {
                         )
                         .unwrap(),
                         Expr::List { .. } => todo!(),
+                        Expr::Closure {
+                            params,
+                            ret_ty,
+                            body,
+                        } => {
+                            write!(
+                                out.borrow_mut(),
+                                "{indent_str}fn(",
+                                indent_str = if newline {
+                                    "  ".repeat(indent - 1)
+                                } else {
+                                    "".to_owned()
+                                }
+                            )
+                            .unwrap();
+                            for (i, param) in params.iter().enumerate() {
+                                if i != 0 {
+                                    write!(out.borrow_mut(), ", ").unwrap();
+                                }
+                                write!(out.borrow_mut(), "{}: {}", param.0, param.1).unwrap();
+                            }
+                            write!(out.borrow_mut(), ")").unwrap();
+                            if let Some(ret_ty) = ret_ty {
+                                write!(out.borrow_mut(), " -> {}", ret_ty).unwrap();
+                            }
+                            write!(out.borrow_mut(), " ").unwrap();
+                            self.inspect(
+                                scope,
+                                (unit, *body, indent + 1, out.clone(), nested + 1, false),
+                            );
+                        }
                     };
                     if newline {
                         writeln!(out.borrow_mut()).unwrap();
@@ -412,6 +443,7 @@ pub mod pass {
                                     .collect::<Vec<_>>()
                                     .join(", "),
                                 ret = ret_ty
+                                    .as_ref()
                                     .clone()
                                     .map(|ty| format!("-> {} ", ty))
                                     .unwrap_or(" ".to_owned()),
@@ -436,11 +468,10 @@ pub mod pass {
                                 .map(|(name, ty)| format!("  {}: {}", name, ty))
                                 .collect::<Vec<_>>()
                                 .join(", "),
-                            ret_ty
-                                .clone()
-                                .unwrap_or(ItemPath::from(vec![PathPart::Named(
-                                    "void".to_owned()
-                                )]))
+                            ret_ty.as_ref().unwrap_or(&TypeName {
+                                path: ItemPath::from(vec![PathPart::Named("void".to_owned())]),
+                                ptr_depth: 0
+                            })
                         )
                         .unwrap(),
                         Item::StructDef { vis, name, fields } => writeln!(
@@ -493,6 +524,7 @@ pub mod pass {
                                 (unit, *value, indent + 1, out.clone(), nested + 1, false),
                             );
                         }
+                        Item::UseDecl { vis, path } => todo!(),
                     };
                     writeln!(out.borrow_mut()).unwrap();
                 }

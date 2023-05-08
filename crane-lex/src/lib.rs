@@ -4,10 +4,70 @@ use chumsky::{
     input::{BoxedStream, Stream},
     text::newline,
 };
-use std::hash::Hash;
 use std::path::PathBuf;
+use std::{fmt::Display, hash::Hash};
 
 use chumsky::{span::Span as ChumskySpan, text::keyword};
+
+impl Display for Token {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Token::Keyword(k) => write!(f, "{}", k),
+            Token::Literal(l) => write!(f, "{}", l),
+            Token::Symbol(s) => write!(f, "{}", s),
+            Token::Ident(i) => write!(f, "{}", i),
+            Token::Visibility(v) => write!(f, "{}", v),
+            Token::Newline => write!(f, "\n"),
+        }
+    }
+}
+
+impl Display for Literal {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Literal::String(v) => write!(f, "\"{}\"", v),
+            Literal::Int(v) => write!(f, "{}", v),
+            Literal::Float(v) => write!(f, "{}", v),
+            Literal::Char(v) => write!(f, "{}", v),
+            Literal::Bool(v) => write!(f, "{}", v),
+        }
+    }
+}
+
+impl Display for Symbol {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self)
+    }
+}
+
+impl Display for Keyword {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Keyword::Fn => write!(f, "fn"),
+            Keyword::Let => write!(f, "let"),
+            Keyword::If => write!(f, "if"),
+            Keyword::Else => write!(f, "else"),
+            Keyword::Return => write!(f, "return"),
+            Keyword::While => write!(f, "while"),
+            Keyword::For => write!(f, "for"),
+            Keyword::In => write!(f, "in"),
+            Keyword::Break => write!(f, "break"),
+            Keyword::Loop => write!(f, "loop"),
+            Keyword::Continue => write!(f, "continue"),
+            Keyword::Mod => write!(f, "mod"),
+            Keyword::Struct => write!(f, "struct"),
+            Keyword::Type => write!(f, "type"),
+            Keyword::Impl => write!(f, "impl"),
+            Keyword::As => write!(f, "as"),
+            Keyword::Use => write!(f, "use"),
+            Keyword::Super => write!(f, "super"),
+            Keyword::Self_ => write!(f, "self"),
+            Keyword::Root => write!(f, "root"),
+            Keyword::Const => write!(f, "const"),
+            Keyword::Static => write!(f, "static"),
+        }
+    }
+}
 
 #[derive(Debug, PartialEq)]
 pub struct SourceFile {

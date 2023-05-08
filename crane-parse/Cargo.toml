@@ -8,7 +8,7 @@ edition = "2021"
 [dependencies]
 anyhow = "1.0.71"
 ariadne = { version = "0.2.0", features = ["auto-color"] }
-chumsky = { git = "https://github.com/zesterer/chumsky" }
+chumsky = { git = "https://github.com/zesterer/chumsky", features = ["label"] }
 crane-lex = { path = "../crane-lex/" }
 log = "0.4.17"
 slotmap = "1.0.6"

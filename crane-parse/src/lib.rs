@@ -5,12 +5,13 @@ use chumsky::recovery::{nested_delimiters, via_parser};
 use chumsky::recursive::recursive;
 use chumsky::span::SimpleSpan;
 use chumsky::{select, IterParser, ParseResult, Parser as ChumskyParser};
-use lex::{IntoStream, Span, SplitSpanned};
+use lex::{Bitwise, IntoStream, Span, SplitSpanned};
 use slotmap::new_key_type;
 
 use crane_lex as lex;
 use crane_lex::{
-    Arithmetic, Assignment, Comparison, Keyword, Punctuation, Spanned, Symbol, Token, Visibility,
+    Arithmetic, Assignment, Comparison, Keyword, Logical, Punctuation, Spanned, Symbol, Token,
+    Visibility,
 };
 
 pub mod expr;
@@ -22,9 +23,9 @@ pub mod unit;
 
 use expr::Expr;
 use item::Item;
-use ops::BinaryOp;
+use ops::{BinaryOp, UnaryOp};
 use package::Package;
-use path::{ItemPath, PathPart, TypeName};
+use path::TypeName;
 use unit::{NodeId, Unit, UnitId};
 
 new_key_type! {
@@ -35,9 +36,10 @@ new_key_type! {
 pub enum ASTNode {
     Item(Item),
     Expr(Expr),
+    Error,
 }
 
-pub type ParserError<'src> = chumsky::error::Simple<'src, Token>; //error::Rich<'src, E>;
+pub type ParserError<'src> = chumsky::error::Rich<'src, Token>;
 
 pub type ParserCtx = ();
 
@@ -120,6 +122,25 @@ macro_rules! assign {
     };
 }
 
+#[macro_export]
+macro_rules! logical {
+    ($id:ident) => {
+        just(Token::Symbol(Symbol::Logical(Logical::$id)))
+    };
+    (@$id:ident) => {
+        Token::Symbol(Symbol::Logical(Logical::$id))
+    };
+}
+
+macro_rules! bit {
+    ($id:ident) => {
+        just(Token::Symbol(Symbol::Bitwise(Bitwise::$id)))
+    };
+    (@$id:ident) => {
+        Token::Symbol(Symbol::Bitwise(Bitwise::$id))
+    };
+}
+
 fn ident_str<'src>() -> impl ChumskyParser<'src, ParserStream<'src>, String, ParserExtra<'src>> {
     any()
         .filter(|t| matches!(t, Token::Ident(_)))
@@ -130,13 +151,13 @@ fn ident_str<'src>() -> impl ChumskyParser<'src, ParserStream<'src>, String, Par
 }
 
 fn params<'src>(
-) -> impl ChumskyParser<'src, ParserStream<'src>, Vec<(String, ItemPath)>, ParserExtra<'src>> {
+) -> impl ChumskyParser<'src, ParserStream<'src>, Vec<(String, TypeName)>, ParserExtra<'src>> {
     ident_str()
         .then_ignore(punc!(Colon))
-        .then(path::path(0))
+        .then(typename())
         .separated_by(punc!(Comma))
         .at_least(0)
-        .collect::<Vec<(String, ItemPath)>>()
+        .collect()
 }
 
 fn literal<'src>() -> impl ChumskyParser<'src, ParserStream<'src>, NodeId, ParserExtra<'src>> {
@@ -229,10 +250,31 @@ fn expr<'src>() -> impl ChumskyParser<'src, ParserStream<'src>, NodeId, ParserEx
                 .new_expr(Expr::ScopeResolution { path })
         });
 
+        let closure = kw!(Fn)
+            .ignore_then(params().delimited_by(punc!(OpenParen), punc!(CloseParen)))
+            .then(punc!(RightArrow).ignore_then(typename()).or_not())
+            .then(
+                bit!(Or)
+                    .ignore_then(expr.clone().then_ignore(bit!(Or)))
+                    .or(block.clone()),
+            )
+            .map_with_state(
+                |((params, ret_ty), body): ((Vec<_>, Option<_>), NodeId),
+                 _span,
+                 state: &mut ParserState| {
+                    state.current_unit_mut().new_expr(Expr::Closure {
+                        params,
+                        ret_ty,
+                        body,
+                    })
+                },
+            );
+
         let atom = literal()
             .or(scope_resolution)
             .or(ident)
             .or(block)
+            .or(closure)
             .or(r#loop)
             .or(r#let)
             .or(r#if)
@@ -279,12 +321,29 @@ fn expr<'src>() -> impl ChumskyParser<'src, ParserStream<'src>, NodeId, ParserEx
                 .new_expr(Expr::Call { callee: f, args })
         });
 
+        let unary_op = math!(Minus)
+            .map(|_| UnaryOp::Neg)
+            .or(logical!(Not).map(|_| UnaryOp::Not))
+            .or(bit!(And).map(|_| UnaryOp::Ref))
+            .or(math!(Times).map(|_| UnaryOp::Deref));
+
+        let unary = recursive(|unary| {
+            unary_op
+                .then(unary)
+                .map_with_state(|(op, operand), _span, state: &mut ParserState| {
+                    state
+                        .current_unit_mut()
+                        .new_expr(Expr::UnaryOp { op, operand })
+                })
+                .or(call)
+        });
+
         let multiplicative = math!(Times)
             .map(|_| BinaryOp::Mul)
             .or(math!(Divide).map(|_| BinaryOp::Div))
             .or(math!(Mod).map(|_| BinaryOp::Mod));
-        let product = call.clone().foldl_with_state(
-            multiplicative.then(call).repeated(),
+        let product = unary.clone().foldl_with_state(
+            multiplicative.then(unary).repeated(),
             |lhs, (op, rhs), state| {
                 state
                     .current_unit_mut()
@@ -364,13 +423,13 @@ fn func_def<'src>() -> impl ChumskyParser<'src, ParserStream<'src>, NodeId, Pars
         .then_ignore(punc!(OpenParen))
         .then(params())
         .then_ignore(punc!(CloseParen))
-        .then(punc!(RightArrow).ignore_then(path::path(0)).or_not())
-        .then(block())
+        .then(punc!(RightArrow).ignore_then(typename()).or_not())
+        .then(bit!(Or).ignore_then(expr()).or(block()))
         .map_with_state(
             |((((vis, name), params), ret_ty), body): (
                 (
-                    ((Visibility, String), Vec<(String, ItemPath)>),
-                    Option<ItemPath>,
+                    ((Visibility, String), Vec<(String, TypeName)>),
+                    Option<TypeName>,
                 ),
                 NodeId,
             ),
@@ -384,7 +443,7 @@ fn func_def<'src>() -> impl ChumskyParser<'src, ParserStream<'src>, NodeId, Pars
                         name.clone(),
                         Item::FunctionDef {
                             vis,
-                            name: ItemPath::from(vec![PathPart::Named(name)]),
+                            name,
                             params,
                             ret_ty,
                             body,
@@ -399,21 +458,14 @@ fn type_def<'src>() -> impl ChumskyParser<'src, ParserStream<'src>, NodeId, Pars
         .then_ignore(kw!(Type))
         .then(ident_str())
         .then_ignore(assign!(Assign))
-        .then(path::path(0))
+        .then(typename())
         .map_with_state(
             move |((vis, name), ty), _span: SimpleSpan, state: &mut ParserState| {
                 state
                     .package
                     .unit_mut(state.unit_stack.last().copied().unwrap())
                     .unwrap()
-                    .new_item(
-                        name.clone(),
-                        Item::TypeDef {
-                            vis,
-                            name: ItemPath::from(vec![PathPart::Named(name)]),
-                            ty,
-                        },
-                    )
+                    .new_item(name.clone(), Item::TypeDef { vis, name, ty })
             },
         )
 }
@@ -430,14 +482,7 @@ fn struct_def<'src>() -> impl ChumskyParser<'src, ParserStream<'src>, NodeId, Pa
                 .package
                 .unit_mut(state.current_unit_id().clone())
                 .unwrap()
-                .new_item(
-                    name.clone(),
-                    Item::StructDef {
-                        vis,
-                        name: ItemPath::from(vec![PathPart::Named(name)]),
-                        fields,
-                    },
-                )
+                .new_item(name.clone(), Item::StructDef { vis, name, fields })
         })
 }
 
@@ -446,7 +491,7 @@ fn const_def<'src>() -> impl ChumskyParser<'src, ParserStream<'src>, NodeId, Par
         .then_ignore(kw!(Const))
         .then(ident_str())
         .then_ignore(punc!(Colon))
-        .then(path::path(0))
+        .then(typename())
         .then_ignore(assign!(Assign))
         .then(expr())
         .map_with_state(
@@ -473,7 +518,7 @@ fn static_def<'src>() -> impl ChumskyParser<'src, ParserStream<'src>, NodeId, Pa
         .then_ignore(kw!(Static))
         .then(ident_str())
         .then_ignore(punc!(Colon))
-        .then(path::path(0))
+        .then(typename())
         .then_ignore(assign!(Assign))
         .then(expr())
         .map_with_state(

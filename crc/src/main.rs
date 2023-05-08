@@ -33,15 +33,17 @@ fn main() -> anyhow::Result<()> {
 
     let mut package = Package::new();
 
-    let parsed = parse::parse(tokens, &mut package, "test".to_owned())?;
-    let errors = parsed.errors();
-    if errors.len() > 0 {
-        println!("Encountered parse errors");
-    }
-
-    for error in errors {
-        println!("{}", error);
-    }
+    let _ = {
+        let parsed = parse::parse(tokens, &mut package, "test".to_owned())?;
+        let errors = parsed.errors();
+        if errors.len() > 0 {
+            for error in errors {
+                println!("{:?}", error);
+            }
+            println!("Encountered parse errors");
+            return Ok(());
+        }
+    };
 
     // Inspect the unit / package AST trees
     //

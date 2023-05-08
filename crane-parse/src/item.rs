@@ -1,7 +1,7 @@
 use crane_lex::Visibility;
 
 use crate::{
-    path::ItemPath,
+    path::{ItemPath, TypeName},
     unit::{NodeId, UnitId},
 };
 
@@ -10,41 +10,45 @@ use crate::{
 pub enum Item {
     Submodule {
         vis: Visibility,
-        name: ItemPath,
+        name: String,
         id: UnitId,
+    },
+    UseDecl {
+        vis: Visibility,
+        path: ItemPath,
     },
     FunctionDef {
         vis: Visibility,
-        name: ItemPath,
-        params: Vec<(String, ItemPath)>,
-        ret_ty: Option<ItemPath>,
+        name: String,
+        params: Vec<(String, TypeName)>,
+        ret_ty: Option<TypeName>,
         body: NodeId,
     },
     FunctionDecl {
         vis: Visibility,
-        name: ItemPath,
-        args: Vec<(String, ItemPath)>,
-        ret_ty: Option<ItemPath>,
+        name: String,
+        args: Vec<(String, TypeName)>,
+        ret_ty: Option<TypeName>,
     },
     StructDef {
         vis: Visibility,
-        name: ItemPath,
-        fields: Vec<(String, ItemPath)>,
+        name: String,
+        fields: Vec<(String, TypeName)>,
     },
     TypeDef {
         vis: Visibility,
-        name: ItemPath,
-        ty: ItemPath,
+        name: String,
+        ty: TypeName,
     },
     ConstDef {
         vis: Visibility,
         name: String,
-        ty: ItemPath,
+        ty: TypeName,
         value: NodeId,
     },
     StaticDef {
         vis: Visibility,
-        ty: ItemPath,
+        ty: TypeName,
         name: String,
         value: NodeId,
     },

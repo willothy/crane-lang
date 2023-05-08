@@ -52,4 +52,8 @@ impl Unit {
     pub fn new_expr(&mut self, expr: Expr) -> NodeId {
         self.ast_nodes.insert(ASTNode::Expr(expr))
     }
+
+    pub fn new_error(&mut self) -> NodeId {
+        self.ast_nodes.insert(ASTNode::Error)
+    }
 }
