@@ -50,7 +50,7 @@ fn main() -> anyhow::Result<()> {
     // let id = parsed.into_output().unwrap();
     // let unit = package.unit(id).unwrap();
     // println!("{:#?}", unit);
-    // println!("{:#?}", package);
+    println!("{:#?}", package);
 
     // Debug print pass (reconstruct code based on AST)
     println!("Reconstructed from AST:\n");

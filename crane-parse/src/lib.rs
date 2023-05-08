@@ -175,8 +175,47 @@ fn literal<'src>() -> impl ChumskyParser<'src, ParserStream<'src>, NodeId, Parse
         })
 }
 
+fn additive<'src>() -> impl ChumskyParser<'src, ParserStream<'src>, BinaryOp, ParserExtra<'src>> {
+    select! {
+        math!(@Plus) => BinaryOp::Add,
+        math!(@Minus) => BinaryOp::Sub,
+    }
+}
+
+fn multiplicative<'src>(
+) -> impl ChumskyParser<'src, ParserStream<'src>, BinaryOp, ParserExtra<'src>> {
+    select! {
+        math!(@Times) => BinaryOp::Mul,
+        math!(@Divide) => BinaryOp::Div,
+        math!(@Mod) => BinaryOp::Mod,
+    }
+}
+
+fn bitshift<'src>() -> impl ChumskyParser<'src, ParserStream<'src>, BinaryOp, ParserExtra<'src>> {
+    select! {
+        bit!(@ShiftLeft) => BinaryOp::ShiftLeft,
+        bit!(@ShiftRight) => BinaryOp::ShiftRight,
+    }
+}
+
+fn relational<'src>() -> impl ChumskyParser<'src, ParserStream<'src>, BinaryOp, ParserExtra<'src>> {
+    select! {
+        cmp!(@LessThan) => BinaryOp::Lt,
+        cmp!(@LessThanOrEqual) => BinaryOp::Leq,
+        cmp!(@GreaterThan) => BinaryOp::Gt,
+        cmp!(@GreaterThanOrEqual) => BinaryOp::Geq,
+    }
+}
+
+fn equality<'src>() -> impl ChumskyParser<'src, ParserStream<'src>, BinaryOp, ParserExtra<'src>> {
+    select! {
+        cmp!(@Equal) => BinaryOp::Eq,
+        cmp!(@NotEqual) => BinaryOp::Neq,
+    }
+}
+
 fn expr<'src>() -> impl ChumskyParser<'src, ParserStream<'src>, NodeId, ParserExtra<'src>> {
-    recursive(|expr| {
+    just(Token::Newline).or_not().ignore_then(recursive(|expr| {
         let r#let = kw!(Let)
             .ignore_then(ident_str())
             .then_ignore(punc!(Colon))
@@ -254,9 +293,9 @@ fn expr<'src>() -> impl ChumskyParser<'src, ParserStream<'src>, NodeId, ParserEx
             .ignore_then(params().delimited_by(punc!(OpenParen), punc!(CloseParen)))
             .then(punc!(RightArrow).ignore_then(typename()).or_not())
             .then(
-                bit!(Or)
-                    .ignore_then(expr.clone().then_ignore(bit!(Or)))
-                    .or(block.clone()),
+                bit!(Or).ignore_then(expr.clone()).or(block.clone()),
+                // expr.clone()
+                // .delimited_by(punc!(OpenBracket), punc!(CloseBracket))
             )
             .map_with_state(
                 |((params, ret_ty), body): ((Vec<_>, Option<_>), NodeId),
@@ -270,6 +309,16 @@ fn expr<'src>() -> impl ChumskyParser<'src, ParserStream<'src>, NodeId, ParserEx
                 },
             );
 
+        let r#continue = kw!(Continue).map_with_state(|_, _span, state: &mut ParserState| {
+            state.current_unit_mut().new_expr(Expr::Continue)
+        });
+
+        let r#break = kw!(Break).then(expr.clone().or_not()).map_with_state(
+            |(_, value), _span, state: &mut ParserState| {
+                state.current_unit_mut().new_expr(Expr::Break { value })
+            },
+        );
+
         let atom = literal()
             .or(scope_resolution)
             .or(ident)
@@ -279,6 +328,8 @@ fn expr<'src>() -> impl ChumskyParser<'src, ParserStream<'src>, NodeId, ParserEx
             .or(r#let)
             .or(r#if)
             .or(r#while)
+            .or(r#continue)
+            .or(r#break)
             .or(list)
             .or(expr
                 .clone()
@@ -304,7 +355,6 @@ fn expr<'src>() -> impl ChumskyParser<'src, ParserStream<'src>, NodeId, ParserEx
                 |_span| NodeId::default(),
             )))
             .boxed();
-
         let items = expr
             .clone()
             .separated_by(punc!(Comma))
@@ -338,58 +388,37 @@ fn expr<'src>() -> impl ChumskyParser<'src, ParserStream<'src>, NodeId, ParserEx
                 .or(call)
         });
 
-        let multiplicative = math!(Times)
-            .map(|_| BinaryOp::Mul)
-            .or(math!(Divide).map(|_| BinaryOp::Div))
-            .or(math!(Mod).map(|_| BinaryOp::Mod));
-        let product = unary.clone().foldl_with_state(
-            multiplicative.then(unary).repeated(),
-            |lhs, (op, rhs), state| {
-                state
-                    .current_unit_mut()
-                    .new_expr(Expr::BinaryOp { lhs, op, rhs })
-            },
-        );
+        let bin_parsers = [
+            multiplicative().boxed(),
+            additive().boxed(),
+            bitshift().boxed(),
+            relational().boxed(),
+            equality().boxed(),
+            bit!(And).map(|_| BinaryOp::BitwiseAnd).boxed(),
+            bit!(Xor).map(|_| BinaryOp::Xor).boxed(),
+            bit!(Or).map(|_| BinaryOp::BitwiseOr).boxed(),
+            logical!(And).map(|_| BinaryOp::And).boxed(),
+            logical!(Or).map(|_| BinaryOp::Or).boxed(),
+        ];
 
-        let additive = math!(Plus)
-            .map(|_| BinaryOp::Add)
-            .or(math!(Minus).map(|_| BinaryOp::Sub));
-        let sum = product.clone().foldl_with_state(
-            additive.then(product).repeated(),
-            |lhs, (op, rhs), state| {
-                state
-                    .current_unit_mut()
-                    .new_expr(Expr::BinaryOp { lhs, op, rhs })
-            },
-        );
+        let mut binary = unary.boxed();
 
-        let equality = cmp!(Equal)
-            .map(|_| BinaryOp::Eq)
-            .or(cmp!(NotEqual).map(|_| BinaryOp::Neq));
-        let cmp_equality =
-            sum.clone()
-                .foldl_with_state(equality.then(sum).repeated(), |lhs, (op, rhs), state| {
-                    state
-                        .current_unit_mut()
-                        .new_expr(Expr::BinaryOp { lhs, op, rhs })
-                });
+        for parser in bin_parsers {
+            binary = binary
+                .clone()
+                .foldl_with_state(
+                    parser.then(binary).repeated(),
+                    |lhs, (op, rhs), state: &mut ParserState| {
+                        state
+                            .current_unit_mut()
+                            .new_expr(Expr::BinaryOp { lhs, op, rhs })
+                    },
+                )
+                .boxed();
+        }
 
-        let relational = cmp!(LessThan)
-            .map(|_| BinaryOp::Lt)
-            .or(cmp!(LessThanOrEqual).map(|_| BinaryOp::Leq))
-            .or(cmp!(GreaterThan).map(|_| BinaryOp::Gt))
-            .or(cmp!(GreaterThanOrEqual).map(|_| BinaryOp::Geq));
-        let cmp_relational = cmp_equality.clone().foldl_with_state(
-            relational.then(cmp_equality).repeated(),
-            |lhs, (op, rhs), state| {
-                state
-                    .current_unit_mut()
-                    .new_expr(Expr::BinaryOp { lhs, op, rhs })
-            },
-        );
-
-        cmp_relational
-    })
+        binary
+    }))
 }
 
 fn block<'src>() -> impl ChumskyParser<'src, ParserStream<'src>, NodeId, ParserExtra<'src>> {
@@ -541,11 +570,13 @@ fn static_def<'src>() -> impl ChumskyParser<'src, ParserStream<'src>, NodeId, Pa
 }
 
 fn item<'src>() -> impl ChumskyParser<'src, ParserStream<'src>, NodeId, ParserExtra<'src>> {
-    type_def()
-        .or(func_def())
-        .or(struct_def())
-        .or(const_def())
-        .or(static_def())
+    just(Token::Newline).or_not().ignore_then(
+        type_def()
+            .or(func_def())
+            .or(struct_def())
+            .or(const_def())
+            .or(static_def()),
+    )
 }
 
 fn typename<'src>() -> impl ChumskyParser<'src, ParserStream<'src>, TypeName, ParserExtra<'src>> {

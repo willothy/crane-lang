@@ -21,9 +21,17 @@ pub fn func() -> f32 {
 		let a: f32 = test(5 + 5)
 	}
 
-	let add: i32 = fn(l: i32, r: i32) -> i32 | l + r |
+	let add: i32 = fn(l: i32, r: i32) -> i32 | l + r
 
-	::Test::test(5)
+	-5
+
+	continue
+
+	break
+
+	break 5
+
+	let x: _ = ::Test::test(5)
 
 	while true {
 	 	let a: f32 = test(5 + 5)
