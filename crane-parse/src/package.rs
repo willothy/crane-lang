@@ -347,6 +347,7 @@ pub mod pass {
                                     (unit, *value, indent + 1, out.clone(), nested + 1, false),
                                 );
                             }
+                            writeln!(out.borrow_mut()).unwrap();
                         }
                         Expr::Return { value } => {
                             write!(
