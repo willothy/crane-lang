@@ -530,7 +530,13 @@ fn func_def<'src>() -> impl ChumskyParser<'src, ParserStream<'src>, NodeId, Pars
         .then(params())
         .then_ignore(punc!(CloseParen))
         .then(punc!(RightArrow).ignore_then(typename()).or_not())
-        .then(bit!(Or).ignore_then(expr()).or(block()))
+        .then(
+            bit!(Or)
+                .ignore_then(expr().map_with_state(|expr, _span, state| {
+                    state.current_unit_mut().make_result(expr)
+                }))
+                .or(block()),
+        )
         .map_with_state(
             |((((vis, name), params), ret_ty), body): (
                 (
