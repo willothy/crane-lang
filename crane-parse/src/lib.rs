@@ -19,6 +19,7 @@ pub mod item;
 pub mod ops;
 pub mod package;
 pub mod path;
+pub mod ty;
 pub mod unit;
 
 use expr::Expr;
@@ -214,14 +215,14 @@ fn equality<'src>() -> impl ChumskyParser<'src, ParserStream<'src>, BinaryOp, Pa
     }
 }
 
-// fn stmt<'src>() -> impl ChumskyParser<'src, ParserStream<'src>, NodeId, ParserExtra<'src>> {}
-
-fn r#let<'src>() -> impl ChumskyParser<'src, ParserStream<'src>, NodeId, ParserExtra<'src>> {
+fn r#let<'src>(
+    expr: impl ChumskyParser<'src, ParserStream<'src>, NodeId, ParserExtra<'src>>,
+) -> impl ChumskyParser<'src, ParserStream<'src>, NodeId, ParserExtra<'src>> {
     kw!(Let)
         .ignore_then(ident_str())
         .then_ignore(punc!(Colon))
         .then(typename())
-        .then(assign!(Assign).ignore_then(expr().or_not()))
+        .then(assign!(Assign).ignore_then(expr.or_not()))
         .map_with_state(|((name, ty), value), _span, state: &mut ParserState| {
             state
                 .current_unit_mut()
@@ -235,111 +236,85 @@ fn r#continue<'src>() -> impl ChumskyParser<'src, ParserStream<'src>, NodeId, Pa
     })
 }
 
-fn r#break<'src>() -> impl ChumskyParser<'src, ParserStream<'src>, NodeId, ParserExtra<'src>> {
-    kw!(Break).ignore_then(expr().or_not()).map_with_state(
-        |value, _span, state: &mut ParserState| {
+fn r#break<'src>(
+    expr: impl ChumskyParser<'src, ParserStream<'src>, NodeId, ParserExtra<'src>>,
+) -> impl ChumskyParser<'src, ParserStream<'src>, NodeId, ParserExtra<'src>> {
+    kw!(Break)
+        .ignore_then(expr.or_not())
+        .map_with_state(|value, _span, state: &mut ParserState| {
             state.current_unit_mut().new_expr(Expr::Break { value })
-        },
-    )
+        })
 }
 
-fn r#return<'src>() -> impl ChumskyParser<'src, ParserStream<'src>, NodeId, ParserExtra<'src>> {
-    kw!(Return).ignore_then(expr().or_not()).map_with_state(
+fn r#return<'src>(
+    expr: impl ChumskyParser<'src, ParserStream<'src>, NodeId, ParserExtra<'src>>,
+) -> impl ChumskyParser<'src, ParserStream<'src>, NodeId, ParserExtra<'src>> {
+    kw!(Return).ignore_then(expr.or_not()).map_with_state(
         |value, _span, state: &mut ParserState| {
             state.current_unit_mut().new_expr(Expr::Return { value })
         },
     )
 }
 
+fn r#loop<'src>(
+    expr: impl ChumskyParser<'src, ParserStream<'src>, NodeId, ParserExtra<'src>>,
+) -> impl ChumskyParser<'src, ParserStream<'src>, NodeId, ParserExtra<'src>> {
+    kw!(Loop)
+        .ignore_then(expr)
+        .map_with_state(|body, _span, state: &mut ParserState| {
+            state.current_unit_mut().new_expr(Expr::Loop { body })
+        })
+}
+
+fn r#ident<'src>() -> impl ChumskyParser<'src, ParserStream<'src>, NodeId, ParserExtra<'src>> {
+    select! { Token::Ident(ident) => ident }.map_with_state(
+        |name, _span, state: &mut ParserState| state.current_unit_mut().new_expr(Expr::Ident(name)),
+    )
+}
+
+fn list<'src>(
+    expr: impl ChumskyParser<'src, ParserStream<'src>, NodeId, ParserExtra<'src>>,
+) -> impl ChumskyParser<'src, ParserStream<'src>, NodeId, ParserExtra<'src>> {
+    expr.separated_by(punc!(Comma))
+        .at_least(0)
+        .collect::<Vec<NodeId>>()
+        .delimited_by(punc!(OpenBracket), punc!(CloseBracket))
+        .map_with_state(|exprs, _span, state: &mut ParserState| {
+            state.current_unit_mut().new_expr(Expr::List { exprs })
+        })
+}
+
+fn closure<'src>(
+    expr: impl ChumskyParser<'src, ParserStream<'src>, NodeId, ParserExtra<'src>> + Clone,
+) -> impl ChumskyParser<'src, ParserStream<'src>, NodeId, ParserExtra<'src>> {
+    kw!(Fn)
+        .ignore_then(params().delimited_by(punc!(OpenParen), punc!(CloseParen)))
+        .then(punc!(RightArrow).ignore_then(typename()).or_not())
+        .then(bit!(Or).ignore_then(expr.clone()).or(block(expr.clone())))
+        .map_with_state(
+            |((params, ret_ty), body): ((Vec<_>, Option<_>), NodeId),
+             _span,
+             state: &mut ParserState| {
+                state.current_unit_mut().new_expr(Expr::Closure {
+                    params,
+                    ret_ty,
+                    body,
+                })
+            },
+        )
+}
+
+fn scope_resolution<'src>(
+) -> impl ChumskyParser<'src, ParserStream<'src>, NodeId, ParserExtra<'src>> {
+    path::path(1).map_with_state(|path, _span, state| {
+        state
+            .current_unit_mut()
+            .new_expr(Expr::ScopeResolution { path })
+    })
+}
+
 fn expr<'src>() -> impl ChumskyParser<'src, ParserStream<'src>, NodeId, ParserExtra<'src>> {
     just(Token::Newline).or_not().ignore_then(recursive(|expr| {
-        let r#let = kw!(Let)
-            .ignore_then(ident_str())
-            .then_ignore(punc!(Colon))
-            .then(typename())
-            .then(assign!(Assign).ignore_then(expr.clone()).or_not())
-            .map_with_state(|((name, ty), value), _span, state: &mut ParserState| {
-                state
-                    .current_unit_mut()
-                    .new_expr(Expr::Let { name, ty, value })
-            });
-
-        let r#continue = kw!(Continue).map_with_state(|_, _span, state: &mut ParserState| {
-            state.current_unit_mut().new_expr(Expr::Continue)
-        });
-
-        let r#break = kw!(Break).then(expr.clone().or_not()).map_with_state(
-            |(_, value), _span, state: &mut ParserState| {
-                state.current_unit_mut().new_expr(Expr::Break { value })
-            },
-        );
-
-        let r#return = kw!(Return).then(expr.clone().or_not()).map_with_state(
-            |(_, value), _span, state: &mut ParserState| {
-                state.current_unit_mut().new_expr(Expr::Return { value })
-            },
-        );
-
-        let r#loop = kw!(Loop).ignore_then(expr.clone()).map_with_state(
-            |body, _span, state: &mut ParserState| {
-                state.current_unit_mut().new_expr(Expr::Loop { body })
-            },
-        );
-
-        let ident = select! { Token::Ident(ident) => ident }.map_with_state(
-            |name, _span, state: &mut ParserState| {
-                state.current_unit_mut().new_expr(Expr::Ident(name))
-            },
-        );
-
-        let list = expr
-            .clone()
-            .separated_by(punc!(Comma))
-            .at_least(0)
-            .collect::<Vec<NodeId>>()
-            .delimited_by(punc!(OpenBracket), punc!(CloseBracket))
-            .map_with_state(|exprs, _span, state: &mut ParserState| {
-                state.current_unit_mut().new_expr(Expr::List { exprs })
-            });
-
-        let stmt = choice((r#let, r#continue, r#break, r#return, expr.clone()));
-        let block = stmt
-            .separated_by(punc!(Semicolon))
-            .at_least(0)
-            .collect::<Vec<NodeId>>()
-            .then(punc!(Semicolon).or_not())
-            .delimited_by(punc!(OpenBrace), punc!(CloseBrace))
-            .map_with_state(
-                |(mut exprs, result): (Vec<NodeId>, _), _span, state: &mut ParserState| {
-                    // If there's no trailing semicolon, the last expr should be implicitly yielded
-                    if let (Some(last), None) = (exprs.last_mut(), result) {
-                        *last = state.current_unit_mut().make_result(*last);
-                    }
-                    state.current_unit_mut().new_expr(Expr::Block { exprs })
-                },
-            )
-            .boxed();
-
-        let closure = kw!(Fn)
-            .ignore_then(params().delimited_by(punc!(OpenParen), punc!(CloseParen)))
-            .then(punc!(RightArrow).ignore_then(typename()).or_not())
-            .then(
-                bit!(Or).ignore_then(expr.clone()).or(block.clone()),
-                // expr.clone()
-                // .delimited_by(punc!(OpenBracket), punc!(CloseBracket))
-            )
-            .map_with_state(
-                |((params, ret_ty), body): ((Vec<_>, Option<_>), NodeId),
-                 _span,
-                 state: &mut ParserState| {
-                    state.current_unit_mut().new_expr(Expr::Closure {
-                        params,
-                        ret_ty,
-                        body,
-                    })
-                },
-            );
-
         let r#if = recursive(|r#if| {
             kw!(If)
                 .ignore_then(expr.clone())
@@ -361,12 +336,6 @@ fn expr<'src>() -> impl ChumskyParser<'src, ParserStream<'src>, NodeId, ParserEx
                     .new_expr(Expr::While { cond, body })
             });
 
-        let scope_resolution = path::path(1).map_with_state(|path, _span, state| {
-            state
-                .current_unit_mut()
-                .new_expr(Expr::ScopeResolution { path })
-        });
-
         let struct_init = path::path(1)
             .or(ident_str().map(|id| ItemPath::from(vec![PathPart::Named(id)])))
             .then(
@@ -387,14 +356,14 @@ fn expr<'src>() -> impl ChumskyParser<'src, ParserStream<'src>, NodeId, ParserEx
         let atom = choice((
             literal(),
             struct_init,
-            scope_resolution,
-            ident,
-            block,
-            r#loop,
+            scope_resolution(),
+            ident(),
+            block(expr.clone()),
+            r#loop(expr.clone()),
             r#if,
             r#while,
-            list,
-            closure,
+            list(expr.clone()),
+            closure(expr.clone()),
             expr.clone()
                 .delimited_by(punc!(OpenParen), punc!(CloseParen)),
         ))
@@ -451,7 +420,8 @@ fn expr<'src>() -> impl ChumskyParser<'src, ParserStream<'src>, NodeId, ParserEx
                         .new_expr(Expr::UnaryOp { op, operand })
                 })
                 .or(call)
-        });
+        })
+        .boxed();
 
         let bin_parsers = [
             multiplicative().boxed(),
@@ -497,12 +467,23 @@ fn expr<'src>() -> impl ChumskyParser<'src, ParserStream<'src>, NodeId, ParserEx
     }))
 }
 
-fn stmt<'src>() -> impl ChumskyParser<'src, ParserStream<'src>, NodeId, ParserExtra<'src>> {
-    choice((r#let(), r#return(), r#continue(), r#break(), expr()))
+fn stmt<'src>(
+    expr: impl ChumskyParser<'src, ParserStream<'src>, NodeId, ParserExtra<'src>> + Clone,
+) -> impl ChumskyParser<'src, ParserStream<'src>, NodeId, ParserExtra<'src>> {
+    // let expr = expr.clone().boxed();
+    choice((
+        r#let(expr.clone()),
+        r#return(expr.clone()),
+        r#continue(),
+        r#break(expr.clone()),
+        expr.clone(),
+    ))
 }
 
-fn block<'src>() -> impl ChumskyParser<'src, ParserStream<'src>, NodeId, ParserExtra<'src>> {
-    stmt()
+fn block<'src>(
+    expr: impl ChumskyParser<'src, ParserStream<'src>, NodeId, ParserExtra<'src>> + Clone,
+) -> impl ChumskyParser<'src, ParserStream<'src>, NodeId, ParserExtra<'src>> {
+    stmt(expr)
         .separated_by(punc!(Semicolon))
         .at_least(0)
         .collect::<Vec<NodeId>>()
@@ -547,7 +528,7 @@ fn func_def<'src>() -> impl ChumskyParser<'src, ParserStream<'src>, NodeId, Pars
                 .ignore_then(expr().map_with_state(|expr, _span, state| {
                     state.current_unit_mut().make_result(expr)
                 }))
-                .or(block()),
+                .or(block(expr().boxed())),
         )
         .map_with_state(
             |((((vis, name), params), ret_ty), body): (
@@ -664,9 +645,28 @@ fn static_def<'src>() -> impl ChumskyParser<'src, ParserStream<'src>, NodeId, Pa
         )
 }
 
+fn import<'src>() -> impl ChumskyParser<'src, ParserStream<'src>, NodeId, ParserExtra<'src>> {
+    vis()
+        .then(kw!(Import).ignore_then(path::path(1)))
+        .map_with_state(|(vis, path), _span, state: &mut ParserState| {
+            state
+                .package
+                .unit_mut(state.current_unit_id().clone())
+                .unwrap()
+                .new_item(
+                    path.name().unwrap().to_owned(),
+                    Item::Import {
+                        vis,
+                        path: path.clone(),
+                    },
+                )
+        })
+}
+
 fn item<'src>() -> impl ChumskyParser<'src, ParserStream<'src>, NodeId, ParserExtra<'src>> {
     just(Token::Newline).or_not().ignore_then(
         type_def()
+            .or(import())
             .or(func_def())
             .or(struct_def())
             .or(const_def())

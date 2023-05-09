@@ -13,7 +13,7 @@ pub enum Item {
         name: String,
         id: UnitId,
     },
-    UseDecl {
+    Import {
         vis: Visibility,
         path: ItemPath,
     },

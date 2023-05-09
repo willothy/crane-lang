@@ -17,6 +17,7 @@ impl Display for Token {
             Token::Ident(i) => write!(f, "{}", i),
             Token::Visibility(v) => write!(f, "{}", v),
             Token::Newline => write!(f, "\n"),
+            Token::Primitive(p) => write!(f, "{}", p),
         }
     }
 }
@@ -58,7 +59,7 @@ impl Display for Keyword {
             Keyword::Type => write!(f, "type"),
             Keyword::Impl => write!(f, "impl"),
             Keyword::As => write!(f, "as"),
-            Keyword::Use => write!(f, "use"),
+            Keyword::Import => write!(f, "import"),
             Keyword::Super => write!(f, "super"),
             Keyword::Self_ => write!(f, "self"),
             Keyword::Root => write!(f, "root"),
@@ -91,7 +92,7 @@ pub enum Keyword {
     Type,
     Impl,
     As,
-    Use,
+    Import,
     Super,
     Self_,
     Root,
@@ -111,6 +112,45 @@ pub enum Literal {
     Char(char),
     /// true | false
     Bool(bool),
+}
+
+#[derive(Debug, PartialEq, Clone, Hash)]
+pub enum Primitive {
+    U8,
+    U16,
+    U32,
+    U64,
+    U128,
+    I8,
+    I16,
+    I32,
+    I64,
+    I128,
+    F32,
+    F64,
+    Bool,
+    Char,
+}
+
+impl Display for Primitive {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Primitive::U8 => write!(f, "u8"),
+            Primitive::U16 => write!(f, "u16"),
+            Primitive::U32 => write!(f, "u32"),
+            Primitive::U64 => write!(f, "u64"),
+            Primitive::U128 => write!(f, "u128"),
+            Primitive::I8 => write!(f, "i8"),
+            Primitive::I16 => write!(f, "i16"),
+            Primitive::I32 => write!(f, "i32"),
+            Primitive::I64 => write!(f, "i64"),
+            Primitive::I128 => write!(f, "i128"),
+            Primitive::F32 => write!(f, "f32"),
+            Primitive::F64 => write!(f, "f64"),
+            Primitive::Bool => write!(f, "bool"),
+            Primitive::Char => write!(f, "char"),
+        }
+    }
 }
 
 impl Eq for Literal {}
@@ -227,6 +267,7 @@ pub enum Token {
     Ident(String),
     Visibility(Visibility),
     Newline,
+    Primitive(Primitive),
 }
 
 impl Token {
@@ -376,7 +417,7 @@ impl TryFrom<&str> for Keyword {
             "root" => Keyword::Root,
             "self" => Keyword::Self_,
             "super" => Keyword::Super,
-            "use" => Keyword::Use,
+            "import" => Keyword::Import,
             "as" => Keyword::As,
             "impl" => Keyword::Impl,
             "const" => Keyword::Const,
@@ -542,7 +583,7 @@ pub fn kw<'src>() -> impl Parser<'src, &'src str, Spanned<Token, Span>, LexerExt
         keyword("root").map(|_| Keyword::Root),
         keyword("self").map(|_| Keyword::Self_),
         keyword("super").map(|_| Keyword::Super),
-        keyword("use").map(|_| Keyword::Use),
+        keyword("import").map(|_| Keyword::Import),
         keyword("as").map(|_| Keyword::As),
         keyword("impl").map(|_| Keyword::Impl),
         keyword("const").map(|_| Keyword::Const),
@@ -744,11 +785,33 @@ pub fn char_literal<'src>() -> impl Parser<'src, &'src str, Spanned<Token, Span>
         )
 }
 
+pub fn primitive<'src>() -> impl Parser<'src, &'src str, Spanned<Token, Span>, LexerExtra<'src>> {
+    choice((
+        just("bool").map(|_| Token::Primitive(Primitive::Bool)),
+        just("char").map(|_| Token::Primitive(Primitive::Char)),
+        just("f32").map(|_| Token::Primitive(Primitive::F32)),
+        just("f64").map(|_| Token::Primitive(Primitive::F64)),
+        just("i8").map(|_| Token::Primitive(Primitive::I8)),
+        just("i16").map(|_| Token::Primitive(Primitive::I16)),
+        just("i32").map(|_| Token::Primitive(Primitive::I32)),
+        just("i64").map(|_| Token::Primitive(Primitive::I64)),
+        just("u8").map(|_| Token::Primitive(Primitive::U8)),
+        just("u16").map(|_| Token::Primitive(Primitive::U16)),
+        just("u32").map(|_| Token::Primitive(Primitive::U32)),
+        just("u64").map(|_| Token::Primitive(Primitive::U64)),
+    ))
+    .map_with_state(|value, span: SimpleSpan, state: &mut LexerState| Spanned {
+        value,
+        span: Span::new(state.source_id.clone(), span.start(), span.end()),
+    })
+}
+
 pub fn token<'src>() -> impl Parser<'src, &'src str, Spanned<Token, Span>, LexerExtra<'src>> {
     choice((
         punctuation(),
         vis(),
         kw(),
+        // primitive(),
         symbol(),
         ident(),
         bool_literal(),

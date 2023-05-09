@@ -9,7 +9,7 @@ use crane_lex::Token;
 
 use crate::ParserExtra;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct TypeName {
     pub path: ItemPath,
     pub ptr_depth: usize,
@@ -126,6 +126,17 @@ impl ItemPath {
 
     pub fn pop(&mut self) -> Option<PathPart> {
         self.parts.pop()
+    }
+
+    pub fn last(&self) -> Option<&PathPart> {
+        self.parts.last()
+    }
+
+    pub fn name(&self) -> Option<&str> {
+        self.parts.last().and_then(|p| match p {
+            PathPart::Named(s) => Some(s.as_str()),
+            _ => None,
+        })
     }
 
     pub fn insert(&mut self, index: usize, part: PathPart) {

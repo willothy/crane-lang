@@ -594,10 +594,10 @@ pub mod pass {
                             .unwrap();
                             self.inspect(scope, input.with().node(*value).indent().nested());
                         }
-                        Item::UseDecl { vis, path } => {
+                        Item::Import { vis, path } => {
                             writeln!(
                                 input.out.borrow_mut(),
-                                "{indent_str}{}use {}",
+                                "{indent_str}{}import {}",
                                 match vis {
                                     crane_lex::Visibility::Public => "pub ",
                                     crane_lex::Visibility::Private => "",
