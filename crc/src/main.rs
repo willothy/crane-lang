@@ -5,9 +5,15 @@ use parse::package::{pass::PrintPackage, Package};
 
 fn main() -> anyhow::Result<()> {
     env_logger::init();
-    let test = include_str!("../../test.cr");
+    let args = std::env::args();
+    let test = if let Some(file) = args.skip(1).next() {
+        std::fs::read_to_string(file)?
+    } else {
+        println!("Usage: crc <file>");
+        return Err(anyhow::anyhow!("No file specified"));
+    };
 
-    let lexer_res = lex::lex(test, "test")?;
+    let lexer_res = lex::lex(test.as_str(), "test")?;
 
     let errors = lexer_res.errors();
 

@@ -48,6 +48,9 @@ pub enum Expr {
     Return {
         value: Option<NodeId>,
     },
+    Result {
+        value: NodeId,
+    },
     Continue,
     Cast {
         ty: TypeName,

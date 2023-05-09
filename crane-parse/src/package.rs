@@ -19,559 +19,6 @@ impl Default for Package {
     }
 }
 
-pub mod pass {
-    use std::{cell::RefCell, fmt::Write, rc::Rc};
-
-    use crane_lex::Literal;
-
-    use crate::{
-        expr::Expr,
-        item::Item,
-        path::{ItemPath, PathPart, TypeName},
-        unit::{NodeId, UnitId},
-        ASTNode,
-    };
-
-    use super::Package;
-
-    pub trait Transform {
-        type Scope;
-        type Input;
-        fn transform(&mut self, scope: &mut Self::Scope, input: Self::Input);
-    }
-
-    pub trait Inspect {
-        type Scope;
-        type Input;
-        fn inspect(&mut self, scope: &Self::Scope, input: Self::Input);
-    }
-
-    pub struct PrintPackage;
-    pub struct PrintUnit;
-    pub struct PrintNode<'a> {
-        _marker: std::marker::PhantomData<&'a ()>,
-    }
-
-    impl PrintNode<'_> {
-        pub fn new() -> Self {
-            Self {
-                _marker: std::marker::PhantomData,
-            }
-        }
-    }
-
-    impl<'a> Inspect for PrintNode<'a> {
-        type Scope = Package;
-        type Input = (UnitId, NodeId, usize, Rc<RefCell<dyn Write>>, usize, bool);
-
-        fn inspect(&mut self, scope: &Self::Scope, input: Self::Input) {
-            let unit = input.0;
-            let node = input.1;
-            let indent = input.2;
-            let out = input.3;
-            let nested = input.4;
-            let newline = input.5;
-            let node = scope.units.get(unit).unwrap().get_node(node).unwrap();
-            let indent_str = "  ".repeat(indent.checked_sub(1).unwrap_or(0));
-
-            match node {
-                ASTNode::Expr(e) => {
-                    match e {
-                        Expr::Literal(l) => {
-                            let indent = if newline {
-                                "  ".repeat(indent - 1)
-                            } else {
-                                "".to_owned()
-                            };
-                            match l {
-                                Literal::Int(i) => write!(out.borrow_mut(), "{indent}{i}").unwrap(),
-                                Literal::Float(f) => {
-                                    write!(out.borrow_mut(), "{indent}{f}").unwrap()
-                                }
-                                Literal::String(s) => {
-                                    write!(out.borrow_mut(), "\"{indent}{s}\"").unwrap()
-                                }
-                                Literal::Char(c) => {
-                                    write!(out.borrow_mut(), "'{indent}{c}'").unwrap()
-                                }
-                                Literal::Bool(b) => {
-                                    write!(out.borrow_mut(), "{indent}{b}").unwrap()
-                                }
-                            }
-                        }
-                        Expr::Ident(n) => write!(
-                            out.borrow_mut(),
-                            "{indent}{n}",
-                            indent = if newline {
-                                "  ".repeat(indent - 1)
-                            } else {
-                                "".to_owned()
-                            }
-                        )
-                        .unwrap(),
-                        Expr::StructInit { ty, fields } => {
-                            write!(out.borrow_mut(), "{ty} {{", ty = ty).unwrap();
-                            for (name, expr) in fields {
-                                write!(out.borrow_mut(), "{name}: ", name = name).unwrap();
-                                self.inspect(
-                                    scope,
-                                    (unit, *expr, indent, out.clone(), nested + 1, false),
-                                );
-                                write!(out.borrow_mut(), ", ").unwrap();
-                            }
-                            write!(out.borrow_mut(), "}}").unwrap();
-                        }
-                        Expr::Call { callee, args } => {
-                            self.inspect(
-                                scope,
-                                (unit, *callee, indent, out.clone(), nested, false),
-                            );
-                            write!(out.borrow_mut(), "(").unwrap();
-                            for (i, arg) in args.iter().enumerate() {
-                                if i > 0 {
-                                    write!(out.borrow_mut(), ", ").unwrap();
-                                }
-                                self.inspect(
-                                    scope,
-                                    (unit, *arg, indent, out.clone(), nested, false),
-                                );
-                            }
-                            write!(out.borrow_mut(), ")").unwrap();
-                        }
-                        Expr::MemberAccess {
-                            object,
-                            member,
-                            computed,
-                        } => {
-                            self.inspect(
-                                scope,
-                                (unit, *object, indent, out.clone(), nested + 1, false),
-                            );
-                            if *computed {
-                                write!(out.borrow_mut(), "[").unwrap();
-                                self.inspect(
-                                    scope,
-                                    (unit, *member, indent, out.clone(), nested + 1, false),
-                                );
-                                write!(out.borrow_mut(), "]").unwrap();
-                            } else {
-                                write!(out.borrow_mut(), ".").unwrap();
-                                self.inspect(
-                                    scope,
-                                    (unit, *member, indent, out.clone(), nested + 1, false),
-                                );
-                            }
-                        }
-                        Expr::UnaryOp { op, operand } => {
-                            write!(
-                                out.borrow_mut(),
-                                "{indent}{op}",
-                                op = op,
-                                indent = if newline {
-                                    "  ".repeat(indent - 1)
-                                } else {
-                                    "".to_owned()
-                                }
-                            )
-                            .unwrap();
-                            self.inspect(
-                                scope,
-                                (unit, *operand, indent, out.clone(), nested + 1, false),
-                            );
-                        }
-                        Expr::BinaryOp { op, lhs, rhs } => {
-                            if newline {
-                                write!(out.borrow_mut(), "{}", "  ".repeat(indent - 1)).unwrap();
-                            }
-                            self.inspect(
-                                scope,
-                                (unit, *lhs, indent, out.clone(), nested + 1, false),
-                            );
-                            write!(out.borrow_mut(), " {op} ", op = op).unwrap();
-                            self.inspect(
-                                scope,
-                                (unit, *rhs, indent, out.clone(), nested + 1, false),
-                            );
-                        }
-                        Expr::Assignment { lhs, op, rhs } => {
-                            if nested <= 3 {
-                                write!(out.borrow_mut(), "{}", "  ".repeat(indent - 1)).unwrap();
-                            }
-                            self.inspect(
-                                scope,
-                                (unit, *lhs, indent, out.clone(), nested + 1, false),
-                            );
-                            write!(out.borrow_mut(), " {op} ", op = op).unwrap();
-                            self.inspect(
-                                scope,
-                                (unit, *rhs, indent, out.clone(), nested + 1, false),
-                            );
-                        }
-                        Expr::Cast { ty, expr } => {
-                            write!(out.borrow_mut(), "({ty})", ty = ty).unwrap();
-                            self.inspect(
-                                scope,
-                                (unit, *expr, indent, out.clone(), nested + 1, false),
-                            );
-                        }
-                        Expr::Block { exprs: stmts } => {
-                            writeln!(out.borrow_mut(), "{{").unwrap();
-                            for stmt in stmts {
-                                self.inspect(
-                                    scope,
-                                    (unit, *stmt, indent + 1, out.clone(), nested + 1, true),
-                                );
-                            }
-                            write!(
-                                out.borrow_mut(),
-                                "{indent}}}",
-                                indent = " ".repeat(indent - 1)
-                            )
-                            .unwrap();
-                        }
-                        Expr::If { cond, then, r#else } => {
-                            write!(
-                                out.borrow_mut(),
-                                "{indent_str}if ",
-                                indent_str = if newline { indent_str } else { "".to_owned() }
-                            )
-                            .unwrap();
-                            self.inspect(
-                                scope,
-                                (unit, *cond, indent, out.clone(), nested + 1, false),
-                            );
-                            write!(out.borrow_mut(), " ").unwrap();
-                            self.inspect(
-                                scope,
-                                (
-                                    unit,
-                                    *then,
-                                    indent + (1 - if indent == 0 { 1 } else { indent % 2 }),
-                                    out.clone(),
-                                    nested + 1,
-                                    false,
-                                ),
-                            );
-                            if let Some(r#else) = r#else {
-                                write!(
-                                    out.borrow_mut(),
-                                    " else ",
-                                    // indent = if newline { indent_str } else { "".to_owned() }
-                                )
-                                .unwrap();
-                                self.inspect(
-                                    scope,
-                                    (unit, *r#else, indent, out.clone(), nested + 1, false),
-                                );
-                            }
-                        }
-                        Expr::While { cond, body } => {
-                            write!(
-                                out.borrow_mut(),
-                                "{indent_str}while ",
-                                indent_str = indent_str
-                            )
-                            .unwrap();
-                            self.inspect(
-                                scope,
-                                (unit, *cond, indent, out.clone(), nested + 1, false),
-                            );
-                            write!(out.borrow_mut(), " ").unwrap();
-                            self.inspect(
-                                scope,
-                                (unit, *body, indent + 1, out.clone(), nested + 1, false),
-                            );
-                        }
-                        Expr::Loop { body } => {
-                            write!(
-                                out.borrow_mut(),
-                                "{indent_str}loop ",
-                                indent_str = indent_str
-                            )
-                            .unwrap();
-                            self.inspect(
-                                scope,
-                                (unit, *body, indent + 1, out.clone(), nested + 1, false),
-                            );
-                        }
-                        Expr::ScopeResolution { path } => {
-                            // self.inspect(
-                            //     scope,
-                            //     (unit, *object, indent, out.clone(), nested + 1, false),
-                            // );
-                            // write!(out.borrow_mut(), "::").unwrap();
-                            // self.inspect(
-                            //     scope,
-                            //     (unit, *member, indent, out.clone(), nested + 1, false),
-                            // );
-                            write!(
-                                out.borrow_mut(),
-                                "{indent}{}",
-                                path,
-                                indent = "  ".repeat(indent - 1)
-                            )
-                            .unwrap();
-                        }
-                        Expr::Let { name, ty, value } => {
-                            write!(
-                                out.borrow_mut(),
-                                "{indent_str}let {name}: {ty}",
-                                indent_str = if newline {
-                                    "  ".repeat(indent - 1)
-                                } else {
-                                    "".to_owned()
-                                },
-                                name = name,
-                                ty = ty,
-                            )
-                            .unwrap();
-                            if let Some(value) = value {
-                                write!(out.borrow_mut(), " = ").unwrap();
-                                self.inspect(
-                                    scope,
-                                    (unit, *value, indent + 1, out.clone(), nested + 1, false),
-                                );
-                            }
-                        }
-                        Expr::Break { value } => {
-                            write!(
-                                out.borrow_mut(),
-                                "{indent_str}break",
-                                indent_str = "  ".repeat(indent - 1)
-                            )
-                            .unwrap();
-                            if let Some(value) = value {
-                                write!(out.borrow_mut(), " ").unwrap();
-                                self.inspect(
-                                    scope,
-                                    (unit, *value, indent + 1, out.clone(), nested + 1, false),
-                                );
-                            }
-                            writeln!(out.borrow_mut()).unwrap();
-                        }
-                        Expr::Return { value } => {
-                            write!(
-                                out.borrow_mut(),
-                                "{indent_str}return",
-                                indent_str = "  ".repeat(indent - 1)
-                            )
-                            .unwrap();
-                            if let Some(value) = value {
-                                write!(out.borrow_mut(), " ").unwrap();
-                                self.inspect(
-                                    scope,
-                                    (unit, *value, indent + 1, out.clone(), nested + 1, false),
-                                );
-                            }
-                        }
-                        Expr::Continue => writeln!(
-                            out.borrow_mut(),
-                            "{indent_str}continue",
-                            indent_str = "  ".repeat(indent - 1)
-                        )
-                        .unwrap(),
-                        Expr::List { .. } => todo!(),
-                        Expr::Closure {
-                            params,
-                            ret_ty,
-                            body,
-                        } => {
-                            write!(
-                                out.borrow_mut(),
-                                "{indent_str}fn(",
-                                indent_str = if newline {
-                                    "  ".repeat(indent - 1)
-                                } else {
-                                    "".to_owned()
-                                }
-                            )
-                            .unwrap();
-                            for (i, param) in params.iter().enumerate() {
-                                if i != 0 {
-                                    write!(out.borrow_mut(), ", ").unwrap();
-                                }
-                                write!(out.borrow_mut(), "{}: {}", param.0, param.1).unwrap();
-                            }
-                            write!(out.borrow_mut(), ")").unwrap();
-                            if let Some(ret_ty) = ret_ty {
-                                write!(out.borrow_mut(), " -> {}", ret_ty).unwrap();
-                            }
-                            write!(out.borrow_mut(), " ").unwrap();
-                            self.inspect(
-                                scope,
-                                (unit, *body, indent + 1, out.clone(), nested + 1, false),
-                            );
-                        }
-                    };
-                    if newline {
-                        writeln!(out.borrow_mut()).unwrap();
-                    }
-                }
-                ASTNode::Item(item) => {
-                    match item {
-                        Item::Submodule { vis, name, id } => {
-                            writeln!(
-                                out.borrow_mut(),
-                                "{indent_str}{vis}mod {name} (Unit {path}) {{",
-                                vis = vis,
-                                name = name,
-                                path = name //scope.canonicalize_path(*id, name.clone()),
-                            )
-                            .unwrap();
-                            for member in scope.units.get(*id).unwrap().members().values() {
-                                self.inspect(
-                                    scope,
-                                    (*id, *member, indent + 1, out.clone(), nested + 1, true),
-                                );
-                            }
-                            writeln!(out.borrow_mut(), "  }}").unwrap();
-                        }
-                        Item::FunctionDef {
-                            vis,
-                            name,
-                            params,
-                            ret_ty,
-                            body,
-                        } => {
-                            write!(
-                                out.borrow_mut(),
-                                "{indent_str}{vis}fn {name}({params}) {ret}",
-                                vis = vis,
-                                name = name,
-                                params = params
-                                    .iter()
-                                    .map(|(name, ty)| format!("{}: {}", name, ty))
-                                    .collect::<Vec<_>>()
-                                    .join(", "),
-                                ret = ret_ty
-                                    .as_ref()
-                                    .clone()
-                                    .map(|ty| format!("-> {} ", ty))
-                                    .unwrap_or(" ".to_owned()),
-                            )
-                            .unwrap();
-                            self.inspect(
-                                scope,
-                                (unit, *body, indent + 1, out.clone(), nested + 1, false),
-                            );
-                        }
-                        Item::FunctionDecl {
-                            vis,
-                            name,
-                            args,
-                            ret_ty,
-                        } => writeln!(
-                            out.borrow_mut(),
-                            "{indent_str}{}extern fn {}({}) -> {}",
-                            vis,
-                            name,
-                            args.iter()
-                                .map(|(name, ty)| format!("  {}: {}", name, ty))
-                                .collect::<Vec<_>>()
-                                .join(", "),
-                            ret_ty.as_ref().unwrap_or(&TypeName {
-                                path: ItemPath::from(vec![PathPart::Named("void".to_owned())]),
-                                ptr_depth: 0
-                            })
-                        )
-                        .unwrap(),
-                        Item::StructDef { vis, name, fields } => writeln!(
-                            out.borrow_mut(),
-                            "{indent_str}{}struct {} {{\n{}\n{indent_str}}}",
-                            vis,
-                            name,
-                            fields
-                                .iter()
-                                .map(|v| format!("{}{}: {}", "  ".repeat(indent + 1), v.0, v.1))
-                                .collect::<Vec<_>>()
-                                .join(",\n"),
-                        )
-                        .unwrap(),
-                        Item::TypeDef { vis, name, ty } => writeln!(
-                            out.borrow_mut(),
-                            "{indent_str}{}type {} = {}",
-                            vis,
-                            name,
-                            ty
-                        )
-                        .unwrap(),
-                        v @ Item::ConstDef {
-                            vis,
-                            name,
-                            ty,
-                            value,
-                        }
-                        | v @ Item::StaticDef {
-                            vis,
-                            ty,
-                            name,
-                            value,
-                        } => {
-                            write!(
-                                out.borrow_mut(),
-                                "{indent_str}{}{kind} {}: {} = ",
-                                vis,
-                                name,
-                                ty,
-                                kind = if matches!(v, Item::ConstDef { .. }) {
-                                    "const"
-                                } else {
-                                    "static"
-                                }
-                            )
-                            .unwrap();
-                            self.inspect(
-                                scope,
-                                (unit, *value, indent + 1, out.clone(), nested + 1, false),
-                            );
-                        }
-                        Item::UseDecl { vis, path } => todo!(),
-                    };
-                    writeln!(out.borrow_mut()).unwrap();
-                }
-                #[allow(unreachable_patterns)]
-                _ => writeln!(out.borrow_mut(), "{}???", "  ".repeat(indent - 1)).unwrap(),
-            };
-        }
-    }
-
-    impl Inspect for PrintUnit {
-        type Scope = Package;
-        type Input = UnitId;
-
-        fn inspect(&mut self, package: &Package, id: UnitId) {
-            let unit = package.units.get(id).unwrap();
-            let buf = Rc::new(RefCell::new(String::new()));
-            for member in unit.members().values().copied() {
-                package.inspect(
-                    &mut PrintNode::new(),
-                    (id, member, 0, buf.clone(), 0, false),
-                );
-                print!("{}", buf.borrow_mut());
-            }
-            println!("");
-        }
-    }
-
-    impl Inspect for PrintPackage {
-        type Scope = Package;
-        type Input = ();
-
-        fn inspect(&mut self, package: &Package, _: ()) {
-            let root = package.root;
-            let unit = package.units.get(root).unwrap();
-            let buf = Rc::new(RefCell::new(String::new()));
-            for member in unit.members().values().copied() {
-                package.inspect(
-                    &mut PrintNode::new(),
-                    (root, member, 0, buf.clone(), 0, false),
-                );
-            }
-            println!("{}", buf.borrow_mut());
-        }
-    }
-}
-
 impl Package {
     pub fn new() -> Self {
         Self::default()
@@ -632,4 +79,573 @@ impl Package {
     //         path => path,
     //     }
     // }
+}
+
+pub mod pass {
+    use std::{cell::RefCell, fmt::Write, rc::Rc};
+
+    use crane_lex::Literal;
+
+    use crate::{
+        expr::Expr,
+        item::Item,
+        path::{ItemPath, PathPart, TypeName},
+        unit::{NodeId, UnitId},
+        ASTNode,
+    };
+
+    use super::Package;
+
+    pub trait Transform {
+        type Scope;
+        type Input;
+        fn transform(&mut self, scope: &mut Self::Scope, input: Self::Input);
+    }
+
+    pub trait Inspect {
+        type Scope;
+        type Input;
+        fn inspect(&mut self, scope: &Self::Scope, input: Self::Input);
+    }
+
+    pub struct PrintPackage;
+    pub struct PrintUnit;
+    pub struct PrintNode<'a> {
+        _marker: std::marker::PhantomData<&'a ()>,
+    }
+
+    #[derive(Clone)]
+    pub struct PrintNodeCtx {
+        unit: UnitId,
+        node: NodeId,
+        indent: usize,
+        out: Rc<RefCell<dyn Write>>,
+        nested: usize,
+        newline: bool,
+        stmt: bool,
+        result: bool,
+    }
+
+    impl PrintNodeCtx {
+        fn new(unit: UnitId, node: NodeId, out: Rc<RefCell<dyn Write>>) -> Self {
+            Self {
+                unit,
+                node,
+                out,
+                indent: 0,
+                nested: 0,
+                newline: false,
+                stmt: false,
+                result: false,
+            }
+        }
+
+        fn node(mut self, node: NodeId) -> Self {
+            self.node = node;
+            self
+        }
+
+        fn newline(mut self) -> Self {
+            self.newline = true;
+            self
+        }
+
+        fn nested(mut self) -> Self {
+            self.nested += 1;
+            self
+        }
+
+        fn indent(mut self) -> Self {
+            self.indent += 1;
+            self
+        }
+
+        fn result(mut self) -> Self {
+            self.result = true;
+            self
+        }
+
+        fn with_indent(mut self, indent: usize) -> Self {
+            self.indent = indent;
+            self
+        }
+
+        fn stmt(mut self) -> Self {
+            self.stmt = true;
+            self
+        }
+
+        fn with(&self) -> Self {
+            let mut new = self.clone();
+            new.newline = false;
+            new.stmt = false;
+            new.result = false;
+            new
+        }
+
+        fn indent_by(mut self, indent: usize) -> Self {
+            self.indent += indent;
+            self
+        }
+    }
+
+    impl PrintNode<'_> {
+        pub fn new() -> Self {
+            Self {
+                _marker: std::marker::PhantomData,
+            }
+        }
+    }
+
+    impl<'a> Inspect for PrintNode<'a> {
+        type Scope = Package;
+        type Input = PrintNodeCtx;
+
+        fn inspect(&mut self, scope: &Self::Scope, input: Self::Input) {
+            let node = scope
+                .units
+                .get(input.unit)
+                .unwrap()
+                .get_node(input.node)
+                .unwrap();
+            let indent_str = "  ".repeat(input.indent.checked_sub(1).unwrap_or(0));
+
+            match node {
+                ASTNode::Expr(e) => {
+                    match e {
+                        Expr::Result { value } => {
+                            // write!(input.out.borrow_mut(), "{indent_str}").unwrap();
+                            self.inspect(scope, input.with().node(*value).nested().result());
+                            // writeln!(out.borrow_mut()).unwrap();
+                        }
+                        Expr::Literal(l) => {
+                            let indent = if input.newline || input.result {
+                                "  ".repeat(input.indent - 1)
+                            } else {
+                                "".to_owned()
+                            };
+                            match l {
+                                Literal::Int(i) => {
+                                    write!(input.out.borrow_mut(), "{indent}{i}").unwrap()
+                                }
+                                Literal::Float(f) => {
+                                    write!(input.out.borrow_mut(), "{indent}{f}").unwrap()
+                                }
+                                Literal::String(s) => {
+                                    write!(input.out.borrow_mut(), "\"{indent}{s}\"").unwrap()
+                                }
+                                Literal::Char(c) => {
+                                    write!(input.out.borrow_mut(), "'{indent}{c}'").unwrap()
+                                }
+                                Literal::Bool(b) => {
+                                    write!(input.out.borrow_mut(), "{indent}{b}").unwrap()
+                                }
+                            }
+                        }
+                        Expr::Ident(n) => write!(
+                            input.out.borrow_mut(),
+                            "{indent}{n}",
+                            indent = if input.newline || input.result {
+                                "  ".repeat(input.indent - 1)
+                            } else {
+                                "".to_owned()
+                            }
+                        )
+                        .unwrap(),
+                        Expr::StructInit { ty, fields } => {
+                            write!(input.out.borrow_mut(), "{ty} {{", ty = ty).unwrap();
+                            for (name, expr) in fields {
+                                write!(input.out.borrow_mut(), "{name}: ", name = name).unwrap();
+                                self.inspect(scope, input.with().node(*expr).nested());
+                                write!(input.out.borrow_mut(), ", ").unwrap();
+                            }
+                            write!(input.out.borrow_mut(), "}}").unwrap();
+                        }
+                        Expr::Call { callee, args } => {
+                            self.inspect(scope, input.with().node(*callee));
+                            write!(input.out.borrow_mut(), "(").unwrap();
+                            for (i, arg) in args.iter().enumerate() {
+                                if i > 0 {
+                                    write!(input.out.borrow_mut(), ", ").unwrap();
+                                }
+                                self.inspect(scope, input.with().node(*arg));
+                            }
+                            write!(input.out.borrow_mut(), ")").unwrap();
+                        }
+                        Expr::MemberAccess {
+                            object,
+                            member,
+                            computed,
+                        } => {
+                            self.inspect(scope, input.with().node(*object).nested());
+                            if *computed {
+                                write!(input.out.borrow_mut(), "[").unwrap();
+                                self.inspect(scope, input.with().node(*member).nested());
+                                write!(input.out.borrow_mut(), "]").unwrap();
+                            } else {
+                                write!(input.out.borrow_mut(), ".").unwrap();
+                                self.inspect(scope, input.with().node(*member).nested());
+                            }
+                        }
+                        Expr::UnaryOp { op, operand } => {
+                            write!(
+                                input.out.borrow_mut(),
+                                "{indent}{op}",
+                                op = op,
+                                indent = if input.newline || input.result {
+                                    "  ".repeat(input.indent - 1)
+                                } else {
+                                    "".to_owned()
+                                }
+                            )
+                            .unwrap();
+                            self.inspect(scope, input.with().node(*operand).nested());
+                        }
+                        Expr::BinaryOp { op, lhs, rhs } => {
+                            if input.newline || input.result {
+                                write!(input.out.borrow_mut(), "{}", "  ".repeat(input.indent - 1))
+                                    .unwrap();
+                            }
+                            self.inspect(scope, input.with().node(*lhs).nested());
+                            write!(input.out.borrow_mut(), " {op} ", op = op).unwrap();
+                            self.inspect(scope, input.with().node(*rhs).nested());
+                        }
+                        Expr::Assignment { lhs, op, rhs } => {
+                            if input.nested <= 3 {
+                                write!(input.out.borrow_mut(), "{}", "  ".repeat(input.indent - 1))
+                                    .unwrap();
+                            }
+                            self.inspect(scope, input.with().node(*lhs).nested());
+                            write!(input.out.borrow_mut(), " {op} ", op = op).unwrap();
+                            self.inspect(scope, input.with().node(*rhs).nested());
+                        }
+                        Expr::Cast { ty, expr } => {
+                            write!(input.out.borrow_mut(), "({ty})", ty = ty).unwrap();
+                            self.inspect(scope, input.with().node(*expr).nested());
+                        }
+                        Expr::Block { exprs: stmts } => {
+                            writeln!(input.out.borrow_mut(), "{{").unwrap();
+                            for stmt in stmts {
+                                self.inspect(
+                                    scope,
+                                    input.with().node(*stmt).indent().newline().stmt(),
+                                );
+                            }
+                            write!(
+                                input.out.borrow_mut(),
+                                "{indent}}}",
+                                // indent = if input.indent % 2 == 0 {
+                                //     " ".repeat(input.indent + 1)
+                                // } else {
+                                //     " ".repeat(input.indent)
+                                // }
+                                indent = " ".repeat(input.indent - 1)
+                            )
+                            .unwrap();
+                        }
+                        Expr::If { cond, then, r#else } => {
+                            write!(
+                                input.out.borrow_mut(),
+                                "{indent_str}if ",
+                                indent_str = if input.newline || input.result {
+                                    indent_str
+                                } else {
+                                    "".to_owned()
+                                }
+                            )
+                            .unwrap();
+                            self.inspect(scope, input.with().node(*cond).nested());
+                            write!(input.out.borrow_mut(), " ").unwrap();
+                            self.inspect(
+                                scope,
+                                input
+                                    .with()
+                                    .node(*then)
+                                    .indent_by(
+                                        1 - if input.indent == 0 {
+                                            1
+                                        } else {
+                                            input.indent % 2
+                                        },
+                                    )
+                                    .nested(),
+                                //     indent + (1 - if indent == 0 { 1 } else { indent % 2 }),
+                            );
+                            if let Some(r#else) = r#else {
+                                write!(
+                                    input.out.borrow_mut(),
+                                    " else ",
+                                    // indent = if newline { indent_str } else { "".to_owned() }
+                                )
+                                .unwrap();
+                                self.inspect(scope, input.with().node(*r#else).nested().indent());
+                            }
+                        }
+                        Expr::While { cond, body } => {
+                            write!(
+                                input.out.borrow_mut(),
+                                "{indent_str}while ",
+                                indent_str = indent_str
+                            )
+                            .unwrap();
+                            self.inspect(scope, input.with().node(*cond).nested());
+                            write!(input.out.borrow_mut(), " ").unwrap();
+                            self.inspect(scope, input.with().node(*body).nested().indent());
+                        }
+                        Expr::Loop { body } => {
+                            write!(
+                                input.out.borrow_mut(),
+                                "{indent_str}loop ",
+                                indent_str = indent_str
+                            )
+                            .unwrap();
+                            self.inspect(scope, input.with().node(*body).indent());
+                        }
+                        Expr::ScopeResolution { path } => {
+                            write!(
+                                input.out.borrow_mut(),
+                                "{indent}{}",
+                                path,
+                                indent = "  ".repeat(input.indent - 1)
+                            )
+                            .unwrap();
+                        }
+                        Expr::Let { name, ty, value } => {
+                            write!(
+                                input.out.borrow_mut(),
+                                "{indent_str}let {name}: {ty}",
+                                name = name,
+                                ty = ty,
+                            )
+                            .unwrap();
+                            if let Some(value) = value {
+                                write!(input.out.borrow_mut(), " = ").unwrap();
+                                self.inspect(scope, input.with().node(*value).nested());
+                            }
+                        }
+                        Expr::Break { value } => {
+                            write!(input.out.borrow_mut(), "{indent_str}break",).unwrap();
+                            if let Some(value) = value {
+                                write!(input.out.borrow_mut(), " ").unwrap();
+                                self.inspect(scope, input.with().node(*value).nested().indent());
+                            }
+                        }
+                        Expr::Return { value } => {
+                            write!(input.out.borrow_mut(), "{indent_str}return",).unwrap();
+                            if let Some(value) = value {
+                                write!(input.out.borrow_mut(), " ").unwrap();
+                                self.inspect(scope, input.with().node(*value).nested().indent());
+                            }
+                        }
+                        Expr::Continue => {
+                            write!(input.out.borrow_mut(), "{indent_str}continue",).unwrap()
+                        }
+                        Expr::List { .. } => todo!(),
+                        Expr::Closure {
+                            params,
+                            ret_ty,
+                            body,
+                        } => {
+                            write!(
+                                input.out.borrow_mut(),
+                                "{indent_str}fn(",
+                                indent_str = if input.newline || input.result {
+                                    "  ".repeat(input.indent - 1)
+                                } else {
+                                    "".to_owned()
+                                }
+                            )
+                            .unwrap();
+                            for (i, param) in params.iter().enumerate() {
+                                if i != 0 {
+                                    write!(input.out.borrow_mut(), ", ").unwrap();
+                                }
+                                write!(input.out.borrow_mut(), "{}: {}", param.0, param.1).unwrap();
+                            }
+                            write!(input.out.borrow_mut(), ")").unwrap();
+                            if let Some(ret_ty) = ret_ty {
+                                write!(input.out.borrow_mut(), " -> {}", ret_ty).unwrap();
+                            }
+                            write!(input.out.borrow_mut(), " ").unwrap();
+                            self.inspect(scope, input.with().node(*body).indent().nested());
+                        }
+                    };
+                    if input.result {
+                        write!(input.out.borrow_mut(), " # result").unwrap();
+                    } else if input.stmt {
+                        let unit = scope.unit(input.unit).unwrap();
+                        let node = unit.get_node(input.node).unwrap();
+                        match node {
+                            ASTNode::Expr(Expr::Result { .. }) => {}
+                            _ => write!(input.out.borrow_mut(), ";").unwrap(),
+                        }
+                    }
+                    if input.newline {
+                        writeln!(input.out.borrow_mut()).unwrap();
+                    }
+                }
+                ASTNode::Item(item) => {
+                    match item {
+                        Item::Submodule { vis, name, id } => {
+                            writeln!(
+                                input.out.borrow_mut(),
+                                "{indent_str}{vis}mod {name} (Unit {path}) {{",
+                                vis = vis,
+                                name = name,
+                                path = name //scope.canonicalize_path(*id, name.clone()),
+                            )
+                            .unwrap();
+                            for member in scope.units.get(*id).unwrap().members().values() {
+                                self.inspect(scope, input.with().node(*member).indent().nested());
+                            }
+                            writeln!(input.out.borrow_mut(), "  }}").unwrap();
+                        }
+                        Item::FunctionDef {
+                            vis,
+                            name,
+                            params,
+                            ret_ty,
+                            body,
+                        } => {
+                            write!(
+                                input.out.borrow_mut(),
+                                "{indent_str}{vis}fn {name}({params}) {ret}",
+                                vis = vis,
+                                name = name,
+                                params = params
+                                    .iter()
+                                    .map(|(name, ty)| format!("{}: {}", name, ty))
+                                    .collect::<Vec<_>>()
+                                    .join(", "),
+                                ret = ret_ty
+                                    .as_ref()
+                                    .clone()
+                                    .map(|ty| format!("-> {} ", ty))
+                                    .unwrap_or(" ".to_owned()),
+                            )
+                            .unwrap();
+                            self.inspect(scope, input.with().node(*body).indent().nested());
+                        }
+                        Item::FunctionDecl {
+                            vis,
+                            name,
+                            args,
+                            ret_ty,
+                        } => writeln!(
+                            input.out.borrow_mut(),
+                            "{indent_str}{}extern fn {}({}) -> {}",
+                            vis,
+                            name,
+                            args.iter()
+                                .map(|(name, ty)| format!("  {}: {}", name, ty))
+                                .collect::<Vec<_>>()
+                                .join(", "),
+                            ret_ty.as_ref().unwrap_or(&TypeName {
+                                path: ItemPath::from(vec![PathPart::Named("void".to_owned())]),
+                                ptr_depth: 0
+                            })
+                        )
+                        .unwrap(),
+                        Item::StructDef { vis, name, fields } => writeln!(
+                            input.out.borrow_mut(),
+                            "{indent_str}{}struct {} {{\n{}\n{indent_str}}}",
+                            vis,
+                            name,
+                            fields
+                                .iter()
+                                .map(|v| format!(
+                                    "{}{}: {}",
+                                    "  ".repeat(input.indent + 1),
+                                    v.0,
+                                    v.1
+                                ))
+                                .collect::<Vec<_>>()
+                                .join(",\n"),
+                        )
+                        .unwrap(),
+                        Item::TypeDef { vis, name, ty } => writeln!(
+                            input.out.borrow_mut(),
+                            "{indent_str}{}type {} = {}",
+                            vis,
+                            name,
+                            ty
+                        )
+                        .unwrap(),
+                        v @ Item::ConstDef {
+                            vis,
+                            name,
+                            ty,
+                            value,
+                        }
+                        | v @ Item::StaticDef {
+                            vis,
+                            ty,
+                            name,
+                            value,
+                        } => {
+                            write!(
+                                input.out.borrow_mut(),
+                                "{indent_str}{}{kind} {}: {} = ",
+                                vis,
+                                name,
+                                ty,
+                                kind = if matches!(v, Item::ConstDef { .. }) {
+                                    "const"
+                                } else {
+                                    "static"
+                                }
+                            )
+                            .unwrap();
+                            self.inspect(scope, input.with().node(*value).indent().nested());
+                        }
+                        Item::UseDecl { vis, path } => todo!(),
+                    };
+                    writeln!(input.out.borrow_mut(), "\n").unwrap();
+                }
+                #[allow(unreachable_patterns)]
+                _ => writeln!(
+                    input.out.borrow_mut(),
+                    "{}???",
+                    "  ".repeat(input.indent - 1)
+                )
+                .unwrap(),
+            };
+        }
+    }
+
+    impl Inspect for PrintUnit {
+        type Scope = Package;
+        type Input = UnitId;
+
+        fn inspect(&mut self, package: &Package, id: UnitId) {
+            let unit = package.units.get(id).unwrap();
+            let buf = Rc::new(RefCell::new(String::new()));
+            for member in unit.members().values().copied() {
+                package.inspect(
+                    &mut PrintNode::new(),
+                    PrintNodeCtx::new(id, member, buf.clone()),
+                );
+                print!("{}", buf.borrow_mut());
+            }
+            println!("");
+        }
+    }
+
+    impl Inspect for PrintPackage {
+        type Scope = Package;
+        type Input = ();
+
+        fn inspect(&mut self, package: &Package, _: ()) {
+            let root = package.root;
+            let unit = package.units.get(root).unwrap();
+            let buf = Rc::new(RefCell::new(String::new()));
+            for member in unit.members().values().copied() {
+                package.inspect(
+                    &mut PrintNode::new(),
+                    PrintNodeCtx::new(root, member, buf.clone()),
+                );
+            }
+            println!("{}", buf.borrow_mut());
+        }
+    }
 }

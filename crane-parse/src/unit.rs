@@ -56,4 +56,9 @@ impl Unit {
     pub fn new_error(&mut self) -> NodeId {
         self.ast_nodes.insert(ASTNode::Error)
     }
+
+    /// Wraps an expr node in a Result node
+    pub(crate) fn make_result(&mut self, expr: NodeId) -> NodeId {
+        self.new_expr(Expr::Result { value: expr })
+    }
 }
