@@ -1,6 +1,6 @@
 use anyhow::Result;
 use chumsky::input::BoxedStream;
-use chumsky::primitive::{any, just};
+use chumsky::primitive::{any, choice, just};
 use chumsky::recovery::{nested_delimiters, via_parser};
 use chumsky::recursive::recursive;
 use chumsky::span::SimpleSpan;
@@ -289,25 +289,25 @@ fn expr<'src>() -> impl ChumskyParser<'src, ParserStream<'src>, NodeId, ParserEx
                 .new_expr(Expr::ScopeResolution { path })
         });
 
-        let closure = kw!(Fn)
-            .ignore_then(params().delimited_by(punc!(OpenParen), punc!(CloseParen)))
-            .then(punc!(RightArrow).ignore_then(typename()).or_not())
-            .then(
-                bit!(Or).ignore_then(expr.clone()).or(block.clone()),
-                // expr.clone()
-                // .delimited_by(punc!(OpenBracket), punc!(CloseBracket))
-            )
-            .map_with_state(
-                |((params, ret_ty), body): ((Vec<_>, Option<_>), NodeId),
-                 _span,
-                 state: &mut ParserState| {
-                    state.current_unit_mut().new_expr(Expr::Closure {
-                        params,
-                        ret_ty,
-                        body,
-                    })
-                },
-            );
+        // let closure = kw!(Fn)
+        //     .ignore_then(params().delimited_by(punc!(OpenParen), punc!(CloseParen)))
+        //     .then(punc!(RightArrow).ignore_then(typename()).or_not())
+        //     .then(
+        //         bit!(Or).ignore_then(expr.clone()).or(block.clone()),
+        //         // expr.clone()
+        //         // .delimited_by(punc!(OpenBracket), punc!(CloseBracket))
+        //     )
+        //     .map_with_state(
+        //         |((params, ret_ty), body): ((Vec<_>, Option<_>), NodeId),
+        //          _span,
+        //          state: &mut ParserState| {
+        //             state.current_unit_mut().new_expr(Expr::Closure {
+        //                 params,
+        //                 ret_ty,
+        //                 body,
+        //             })
+        //         },
+        //     );
 
         let r#continue = kw!(Continue).map_with_state(|_, _span, state: &mut ParserState| {
             state.current_unit_mut().new_expr(Expr::Continue)
@@ -319,42 +319,43 @@ fn expr<'src>() -> impl ChumskyParser<'src, ParserStream<'src>, NodeId, ParserEx
             },
         );
 
-        let atom = literal()
-            .or(scope_resolution)
-            .or(ident)
-            .or(block)
-            .or(closure)
-            .or(r#loop)
-            .or(r#let)
-            .or(r#if)
-            .or(r#while)
-            .or(r#continue)
-            .or(r#break)
-            .or(list)
-            .or(expr
-                .clone()
-                .delimited_by(punc!(OpenParen), punc!(CloseParen)))
-            // Attempt to recover anything that looks like a parenthesised expression but contains errors
-            .recover_with(via_parser(nested_delimiters(
-                punc!(@OpenParen),
-                punc!(@CloseParen),
-                [
-                    (punc!(@OpenBracket), punc!(@CloseBracket)),
-                    (punc!(@OpenBrace), punc!(@CloseBrace)),
-                ],
-                |_span| NodeId::default(),
-            )))
-            // Attempt to recover anything that looks like a list but contains errors
-            .recover_with(via_parser(nested_delimiters(
-                punc!(@OpenBracket),
-                punc!(@CloseBracket),
-                [
-                    (punc!(@OpenParen), punc!(@CloseParen)),
-                    (punc!(@OpenBrace), punc!(@CloseBrace)),
-                ],
-                |_span| NodeId::default(),
-            )))
-            .boxed();
+        let atom = choice((
+            literal(),
+            scope_resolution,
+            ident,
+            block,
+            r#loop,
+            r#let,
+            r#if,
+            r#while,
+            r#continue,
+            r#break,
+            list,
+            expr.clone()
+                .delimited_by(punc!(OpenParen), punc!(CloseParen)),
+        ))
+        // Attempt to recover anything that looks like a parenthesised expression but contains errors
+        .recover_with(via_parser(nested_delimiters(
+            punc!(@OpenParen),
+            punc!(@CloseParen),
+            [
+                (punc!(@OpenBracket), punc!(@CloseBracket)),
+                (punc!(@OpenBrace), punc!(@CloseBrace)),
+            ],
+            |_span| NodeId::default(),
+        )))
+        // Attempt to recover anything that looks like a list but contains errors
+        .recover_with(via_parser(nested_delimiters(
+            punc!(@OpenBracket),
+            punc!(@CloseBracket),
+            [
+                (punc!(@OpenParen), punc!(@CloseParen)),
+                (punc!(@OpenBrace), punc!(@CloseBrace)),
+            ],
+            |_span| NodeId::default(),
+        )))
+        .boxed();
+
         let items = expr
             .clone()
             .separated_by(punc!(Comma))
