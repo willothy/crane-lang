@@ -22,6 +22,16 @@ pub fn func() -> f32 {
 		let x: A = fn(x: i32) -> i32 | 0;
 	};
 
+	let t: Testing = Testing {
+		a: 5,
+		b: 10
+	};
+
+	let t2: Testing = Testing {
+		a: 5,
+		b: 10,
+	};
+
 	let c: _ = fn() {
 		print(5);
 	};

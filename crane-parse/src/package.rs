@@ -248,13 +248,21 @@ pub mod pass {
                         )
                         .unwrap(),
                         Expr::StructInit { ty, fields } => {
-                            write!(input.out.borrow_mut(), "{ty} {{", ty = ty).unwrap();
-                            for (name, expr) in fields {
-                                write!(input.out.borrow_mut(), "{name}: ", name = name).unwrap();
+                            write!(input.out.borrow_mut(), "{ty} {{\n", ty = ty).unwrap();
+                            for (i, (name, expr)) in fields.iter().enumerate() {
+                                if i > 0 {
+                                    write!(input.out.borrow_mut(), ",\n").unwrap();
+                                }
+                                write!(
+                                    input.out.borrow_mut(),
+                                    "{indent_str}{name}: ",
+                                    name = name,
+                                    indent_str = "  ".repeat(input.indent)
+                                )
+                                .unwrap();
                                 self.inspect(scope, input.with().node(*expr).nested());
-                                write!(input.out.borrow_mut(), ", ").unwrap();
                             }
-                            write!(input.out.borrow_mut(), "}}").unwrap();
+                            write!(input.out.borrow_mut(), "\n{indent_str}}}").unwrap();
                         }
                         Expr::Call { callee, args } => {
                             if input.newline || input.result {
@@ -333,7 +341,7 @@ pub mod pass {
                             write!(
                                 input.out.borrow_mut(),
                                 "{indent}}}",
-                                indent = " ".repeat(input.indent - 1)
+                                indent = "  ".repeat(input.indent - 1)
                             )
                             .unwrap();
                         }
@@ -352,17 +360,7 @@ pub mod pass {
                             write!(input.out.borrow_mut(), " ").unwrap();
                             self.inspect(
                                 scope,
-                                input
-                                    .with()
-                                    .node(*then)
-                                    .indent_by(
-                                        1 - if input.indent == 0 {
-                                            1
-                                        } else {
-                                            input.indent % 2
-                                        },
-                                    )
-                                    .nested(),
+                                input.with().node(*then).nested(),
                                 //     indent + (1 - if indent == 0 { 1 } else { indent % 2 }),
                             );
                             if let Some(r#else) = r#else {
@@ -372,7 +370,7 @@ pub mod pass {
                                     // indent = if newline { indent_str } else { "".to_owned() }
                                 )
                                 .unwrap();
-                                self.inspect(scope, input.with().node(*r#else).nested().indent());
+                                self.inspect(scope, input.with().node(*r#else).nested());
                             }
                         }
                         Expr::While { cond, body } => {
@@ -384,7 +382,7 @@ pub mod pass {
                             .unwrap();
                             self.inspect(scope, input.with().node(*cond).nested());
                             write!(input.out.borrow_mut(), " ").unwrap();
-                            self.inspect(scope, input.with().node(*body).nested().indent());
+                            self.inspect(scope, input.with().node(*body).nested());
                         }
                         Expr::Loop { body } => {
                             write!(
@@ -393,7 +391,7 @@ pub mod pass {
                                 indent_str = indent_str
                             )
                             .unwrap();
-                            self.inspect(scope, input.with().node(*body).indent());
+                            self.inspect(scope, input.with().node(*body));
                         }
                         Expr::ScopeResolution { path } => {
                             write!(
@@ -465,7 +463,7 @@ pub mod pass {
                                 write!(input.out.borrow_mut(), " -> {}", ret_ty).unwrap();
                             }
                             write!(input.out.borrow_mut(), " ").unwrap();
-                            self.inspect(scope, input.with().node(*body).indent().nested());
+                            self.inspect(scope, input.with().node(*body).nested());
                         }
                     };
                     if input.result {

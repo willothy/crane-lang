@@ -11,7 +11,7 @@ pub enum Expr {
     Literal(Literal),
     Ident(String),
     StructInit {
-        ty: TypeName,
+        ty: ItemPath,
         fields: Vec<(String, NodeId)>,
     },
     Call {
@@ -72,8 +72,6 @@ pub enum Expr {
         body: NodeId,
     },
     ScopeResolution {
-        // object: NodeId,
-        // member: NodeId,
         path: ItemPath,
     },
     List {

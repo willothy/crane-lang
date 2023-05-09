@@ -25,7 +25,7 @@ use expr::Expr;
 use item::Item;
 use ops::{BinaryOp, UnaryOp};
 use package::Package;
-use path::TypeName;
+use path::{ItemPath, PathPart, TypeName};
 use unit::{NodeId, Unit, UnitId};
 
 new_key_type! {
@@ -367,8 +367,26 @@ fn expr<'src>() -> impl ChumskyParser<'src, ParserStream<'src>, NodeId, ParserEx
                 .new_expr(Expr::ScopeResolution { path })
         });
 
+        let struct_init = path::path(1)
+            .or(ident_str().map(|id| ItemPath::from(vec![PathPart::Named(id)])))
+            .then(
+                ident_str()
+                    .then_ignore(punc!(Colon))
+                    .then(expr.clone())
+                    .separated_by(punc!(Comma))
+                    .allow_trailing()
+                    .collect::<Vec<(String, NodeId)>>()
+                    .delimited_by(punc!(OpenBrace), punc!(CloseBrace)),
+            )
+            .map_with_state(|(ty, fields), _span, state: &mut ParserState| {
+                state
+                    .current_unit_mut()
+                    .new_expr(Expr::StructInit { ty, fields })
+            });
+
         let atom = choice((
             literal(),
+            struct_init,
             scope_resolution,
             ident,
             block,
