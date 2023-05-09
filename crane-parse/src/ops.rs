@@ -49,6 +49,7 @@ impl Display for BinaryOp {
                 BinaryOp::Xor => "^",
                 BinaryOp::ShiftLeft => "<<",
                 BinaryOp::ShiftRight => ">>",
+                BinaryOp::Cast => "as",
             }
         )
     }
@@ -86,7 +87,7 @@ impl TryFrom<&Symbol> for UnaryOp {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum BinaryOp {
     Add,
     Sub,
@@ -106,6 +107,7 @@ pub enum BinaryOp {
     BitwiseOr,
     ShiftLeft,
     ShiftRight,
+    Cast,
 }
 
 impl BinaryOp {
@@ -127,6 +129,7 @@ impl BinaryOp {
             BinaryOp::BitwiseOr => Bitwise,
             BinaryOp::ShiftLeft => Bitwise,
             BinaryOp::ShiftRight => Bitwise,
+            BinaryOp::Cast => Cast,
         }
     }
 }

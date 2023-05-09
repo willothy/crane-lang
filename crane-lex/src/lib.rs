@@ -2,7 +2,6 @@ use anyhow::Result;
 use chumsky::{
     error,
     input::{BoxedStream, Stream},
-    text::{inline_whitespace, newline},
 };
 use std::path::PathBuf;
 use std::{fmt::Display, hash::Hash};
@@ -747,14 +746,6 @@ pub fn char_literal<'src>() -> impl Parser<'src, &'src str, Spanned<Token, Span>
 
 pub fn token<'src>() -> impl Parser<'src, &'src str, Spanned<Token, Span>, LexerExtra<'src>> {
     choice((
-        // newline().map_with_state(move |_, span: SimpleSpan, state: &mut LexerState| Spanned {
-        //     span: Span {
-        //         source: state.source_id.clone(),
-        //         start: span.start(),
-        //         end: span.end(),
-        //     },
-        //     value: Token::Newline,
-        // }),
         punctuation(),
         vis(),
         kw(),
@@ -769,11 +760,10 @@ pub fn token<'src>() -> impl Parser<'src, &'src str, Spanned<Token, Span>, Lexer
 }
 
 pub fn lexer<'src>() -> impl Parser<'src, &'src str, Vec<Spanned<Token, Span>>, LexerExtra<'src>> {
-    let comment = just("//").then(none_of('\n').repeated()).padded();
+    let comment = just("#").then(none_of('\n').repeated()).padded();
     token()
         .padded_by(comment.repeated())
         .padded()
-        // .padded_by(inline_whitespace())
         // If we encounter an error, skip and attempt to lex the next character as a token instead
         .repeated()
         .collect::<Vec<Spanned<Token, Span>>>()

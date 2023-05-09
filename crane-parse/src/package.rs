@@ -165,11 +165,6 @@ pub mod pass {
             self
         }
 
-        fn with_indent(mut self, indent: usize) -> Self {
-            self.indent = indent;
-            self
-        }
-
         fn stmt(mut self) -> Self {
             self.stmt = true;
             self
@@ -262,6 +257,10 @@ pub mod pass {
                             write!(input.out.borrow_mut(), "}}").unwrap();
                         }
                         Expr::Call { callee, args } => {
+                            if input.newline || input.result {
+                                write!(input.out.borrow_mut(), "{indent}", indent = indent_str)
+                                    .unwrap();
+                            }
                             self.inspect(scope, input.with().node(*callee));
                             write!(input.out.borrow_mut(), "(").unwrap();
                             for (i, arg) in args.iter().enumerate() {
@@ -320,8 +319,8 @@ pub mod pass {
                             self.inspect(scope, input.with().node(*rhs).nested());
                         }
                         Expr::Cast { ty, expr } => {
-                            write!(input.out.borrow_mut(), "({ty})", ty = ty).unwrap();
                             self.inspect(scope, input.with().node(*expr).nested());
+                            write!(input.out.borrow_mut(), " as {ty}", ty = ty).unwrap();
                         }
                         Expr::Block { exprs: stmts } => {
                             writeln!(input.out.borrow_mut(), "{{").unwrap();
@@ -334,11 +333,6 @@ pub mod pass {
                             write!(
                                 input.out.borrow_mut(),
                                 "{indent}}}",
-                                // indent = if input.indent % 2 == 0 {
-                                //     " ".repeat(input.indent + 1)
-                                // } else {
-                                //     " ".repeat(input.indent)
-                                // }
                                 indent = " ".repeat(input.indent - 1)
                             )
                             .unwrap();
@@ -406,7 +400,11 @@ pub mod pass {
                                 input.out.borrow_mut(),
                                 "{indent}{}",
                                 path,
-                                indent = "  ".repeat(input.indent - 1)
+                                indent = if input.newline || input.result {
+                                    indent_str
+                                } else {
+                                    "".to_owned()
+                                }
                             )
                             .unwrap();
                         }
@@ -598,7 +596,18 @@ pub mod pass {
                             .unwrap();
                             self.inspect(scope, input.with().node(*value).indent().nested());
                         }
-                        Item::UseDecl { vis, path } => todo!(),
+                        Item::UseDecl { vis, path } => {
+                            writeln!(
+                                input.out.borrow_mut(),
+                                "{indent_str}{}use {}",
+                                match vis {
+                                    crane_lex::Visibility::Public => "pub ",
+                                    crane_lex::Visibility::Private => "",
+                                },
+                                path
+                            )
+                            .unwrap();
+                        }
                     };
                     writeln!(input.out.borrow_mut(), "\n").unwrap();
                 }

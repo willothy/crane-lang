@@ -441,11 +441,11 @@ fn expr<'src>() -> impl ChumskyParser<'src, ParserStream<'src>, NodeId, ParserEx
             bitshift().boxed(),
             relational().boxed(),
             equality().boxed(),
-            bit!(And).map(|_| BinaryOp::BitwiseAnd).boxed(),
-            bit!(Xor).map(|_| BinaryOp::Xor).boxed(),
-            bit!(Or).map(|_| BinaryOp::BitwiseOr).boxed(),
-            logical!(And).map(|_| BinaryOp::And).boxed(),
-            logical!(Or).map(|_| BinaryOp::Or).boxed(),
+            bit!(And).to(BinaryOp::BitwiseAnd).boxed(),
+            bit!(Xor).to(BinaryOp::Xor).boxed(),
+            bit!(Or).to(BinaryOp::BitwiseOr).boxed(),
+            logical!(And).to(BinaryOp::And).boxed(),
+            logical!(Or).to(BinaryOp::Or).boxed(),
         ];
 
         let mut binary = unary.boxed();
@@ -464,7 +464,18 @@ fn expr<'src>() -> impl ChumskyParser<'src, ParserStream<'src>, NodeId, ParserEx
                 .boxed();
         }
 
-        binary
+        let cast_op = just(Token::Keyword(Keyword::As)).to(BinaryOp::Cast).boxed();
+        let cast = binary
+            .clone()
+            .foldl_with_state(
+                cast_op.then(typename()).repeated(),
+                |expr, (_, ty), state: &mut ParserState| {
+                    state.current_unit_mut().new_expr(Expr::Cast { expr, ty })
+                },
+            )
+            .boxed();
+
+        cast
     }))
 }
 
