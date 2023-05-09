@@ -280,8 +280,6 @@ fn expr<'src>() -> impl ChumskyParser<'src, ParserStream<'src>, NodeId, ParserEx
             },
         );
 
-        let stmt = choice((r#let, r#continue, r#break, r#return, expr.clone()));
-
         let r#loop = kw!(Loop).ignore_then(expr.clone()).map_with_state(
             |body, _span, state: &mut ParserState| {
                 state.current_unit_mut().new_expr(Expr::Loop { body })
@@ -304,24 +302,43 @@ fn expr<'src>() -> impl ChumskyParser<'src, ParserStream<'src>, NodeId, ParserEx
                 state.current_unit_mut().new_expr(Expr::List { exprs })
             });
 
-        let block = /* expr
-            .clone() */
-            stmt
+        let stmt = choice((r#let, r#continue, r#break, r#return, expr.clone()));
+        let block = stmt
             .separated_by(punc!(Semicolon))
             .at_least(0)
             .collect::<Vec<NodeId>>()
             .then(punc!(Semicolon).or_not())
             .delimited_by(punc!(OpenBrace), punc!(CloseBrace))
-            // .recover_with(via_parser(any().map_with_state(
-            //     |_, _, state: &mut ParserState| vec![state.current_unit_mut().add_error()],
-            // )))
-            .map_with_state(|(mut exprs, result): (Vec<NodeId>, _), _span, state: &mut ParserState| {
-                // If there's no trailing semicolon, the last expr should be implicitly yielded
-                if let (Some(last), None) = (exprs.last_mut(), result) {
-                    *last = state.current_unit_mut().make_result(*last);
-                }
-                state.current_unit_mut().new_expr(Expr::Block { exprs })
-            });
+            .map_with_state(
+                |(mut exprs, result): (Vec<NodeId>, _), _span, state: &mut ParserState| {
+                    // If there's no trailing semicolon, the last expr should be implicitly yielded
+                    if let (Some(last), None) = (exprs.last_mut(), result) {
+                        *last = state.current_unit_mut().make_result(*last);
+                    }
+                    state.current_unit_mut().new_expr(Expr::Block { exprs })
+                },
+            )
+            .boxed();
+
+        let closure = kw!(Fn)
+            .ignore_then(params().delimited_by(punc!(OpenParen), punc!(CloseParen)))
+            .then(punc!(RightArrow).ignore_then(typename()).or_not())
+            .then(
+                bit!(Or).ignore_then(expr.clone()).or(block.clone()),
+                // expr.clone()
+                // .delimited_by(punc!(OpenBracket), punc!(CloseBracket))
+            )
+            .map_with_state(
+                |((params, ret_ty), body): ((Vec<_>, Option<_>), NodeId),
+                 _span,
+                 state: &mut ParserState| {
+                    state.current_unit_mut().new_expr(Expr::Closure {
+                        params,
+                        ret_ty,
+                        body,
+                    })
+                },
+            );
 
         let r#if = recursive(|r#if| {
             kw!(If)
@@ -350,26 +367,6 @@ fn expr<'src>() -> impl ChumskyParser<'src, ParserStream<'src>, NodeId, ParserEx
                 .new_expr(Expr::ScopeResolution { path })
         });
 
-        // let closure = kw!(Fn)
-        //     .ignore_then(params().delimited_by(punc!(OpenParen), punc!(CloseParen)))
-        //     .then(punc!(RightArrow).ignore_then(typename()).or_not())
-        //     .then(
-        //         bit!(Or).ignore_then(expr.clone()).or(block.clone()),
-        //         // expr.clone()
-        //         // .delimited_by(punc!(OpenBracket), punc!(CloseBracket))
-        //     )
-        //     .map_with_state(
-        //         |((params, ret_ty), body): ((Vec<_>, Option<_>), NodeId),
-        //          _span,
-        //          state: &mut ParserState| {
-        //             state.current_unit_mut().new_expr(Expr::Closure {
-        //                 params,
-        //                 ret_ty,
-        //                 body,
-        //             })
-        //         },
-        //     );
-
         let atom = choice((
             literal(),
             scope_resolution,
@@ -379,6 +376,7 @@ fn expr<'src>() -> impl ChumskyParser<'src, ParserStream<'src>, NodeId, ParserEx
             r#if,
             r#while,
             list,
+            closure,
             expr.clone()
                 .delimited_by(punc!(OpenParen), punc!(CloseParen)),
         ))
@@ -471,25 +469,10 @@ fn expr<'src>() -> impl ChumskyParser<'src, ParserStream<'src>, NodeId, ParserEx
 }
 
 fn stmt<'src>() -> impl ChumskyParser<'src, ParserStream<'src>, NodeId, ParserExtra<'src>> {
-    choice((r#let(), r#return(), r#continue(), r#break(), expr())) //.then_ignore(punc!(Semicolon))
+    choice((r#let(), r#return(), r#continue(), r#break(), expr()))
 }
 
 fn block<'src>() -> impl ChumskyParser<'src, ParserStream<'src>, NodeId, ParserExtra<'src>> {
-    // punc!(OpenBrace)
-    //     .ignore_then(
-    //         /* expr() */
-    //         stmt()
-    //             .separated_by(punc!(Semicolon)) /* .repeated() */
-    //             .at_least(0)
-    //             .collect::<Vec<NodeId>>(),
-    //     )
-    //     .then_ignore(punc!(CloseBrace))
-    //     .map_with_state(|stmts, _span, state: &mut ParserState| {
-    //         let unit_id = state.current_unit_id();
-    //         let unit = state.package.unit_mut(unit_id).unwrap();
-    //         let block = unit.new_expr(Expr::Block { exprs: stmts });
-    //         block
-    //     })
     stmt()
         .separated_by(punc!(Semicolon))
         .at_least(0)

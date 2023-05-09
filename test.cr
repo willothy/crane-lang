@@ -18,8 +18,10 @@ pub fn dec(x: f32) -> f32 | x - 1
 
 pub fn func() -> f32 {
 	loop {
-		let a: f32 = test(5 + 5)
+		let a: f32 = test(5 + 5);
+		let x: A = fn(x: i32) -> i32 | 0;
 	};
+
 
 	continue;
 
