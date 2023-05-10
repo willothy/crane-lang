@@ -1,21 +1,21 @@
-type Test = root::test
+type Test = root::test;
 
-pub type External = ::package::Type
+pub type External = ::package::Type;
 
-type Alias = super::super::test
+pub type Alias = super::super::test;
 
 struct Testing {
 	a: self::Alias,
 	b: test
 }
 
-pub import root::test
+static S: i32 = 5;
 
-static S: i32 = 5
-
-const C: u8 = 2
 
 pub fn inc(x: f32) -> f32 | x + 1
+
+const C: u8 = 2;
+
 pub fn dec(x: f32) -> f32 | x - 1
 
 pub fn func() -> f32 {
@@ -38,7 +38,7 @@ pub fn func() -> f32 {
 		print(5);
 	};
 
-	let x: _ = c as *i32; # test
+	let x: _ = c as *i32;
 
 	continue;
 

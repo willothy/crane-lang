@@ -173,7 +173,7 @@ impl TryFrom<&Symbol> for BinaryOp {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum AssignOp {
     Assign,
     AddAssign,

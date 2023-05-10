@@ -24,7 +24,7 @@ pub mod unit;
 
 use expr::Expr;
 use item::Item;
-use ops::{BinaryOp, UnaryOp};
+use ops::{AssignOp, BinaryOp, UnaryOp};
 use package::Package;
 use path::{ItemPath, PathPart, TypeName};
 use unit::{NodeId, Unit, UnitId};
@@ -436,13 +436,40 @@ fn expr<'src>() -> impl ChumskyParser<'src, ParserStream<'src>, NodeId, ParserEx
             logical!(Or).to(BinaryOp::Or).boxed(),
         ];
 
-        let mut binary = unary.boxed();
+        let assignment_op = choice((
+            assign!(Assign).to(AssignOp::Assign),
+            assign!(AddAssign).to(AssignOp::AddAssign),
+            assign!(SubAssign).to(AssignOp::SubAssign),
+            assign!(MulAssign).to(AssignOp::MulAssign),
+            assign!(DivAssign).to(AssignOp::DivAssign),
+            assign!(ModAssign).to(AssignOp::ModAssign),
+            assign!(AndAssign).to(AssignOp::AndAssign),
+            assign!(OrAssign).to(AssignOp::OrAssign),
+            assign!(XorAssign).to(AssignOp::XorAssign),
+            assign!(ShlAssign).to(AssignOp::ShlAssign),
+            assign!(ShrAssign).to(AssignOp::ShrAssign),
+        ))
+        .boxed();
 
-        for parser in bin_parsers {
+        let assignment = unary
+            .clone()
+            .foldl_with_state(
+                assignment_op.clone().then(unary).repeated(),
+                |lhs, (op, rhs), state: &mut ParserState| {
+                    state
+                        .current_unit_mut()
+                        .new_expr(Expr::Assignment { lhs, op, rhs })
+                },
+            )
+            .boxed();
+
+        let mut binary = assignment.boxed();
+
+        for op in bin_parsers {
             binary = binary
                 .clone()
                 .foldl_with_state(
-                    parser.then(binary).repeated(),
+                    op.clone().then(binary).repeated(),
                     |lhs, (op, rhs), state: &mut ParserState| {
                         state
                             .current_unit_mut()
@@ -470,7 +497,6 @@ fn expr<'src>() -> impl ChumskyParser<'src, ParserStream<'src>, NodeId, ParserEx
 fn stmt<'src>(
     expr: impl ChumskyParser<'src, ParserStream<'src>, NodeId, ParserExtra<'src>> + Clone,
 ) -> impl ChumskyParser<'src, ParserStream<'src>, NodeId, ParserExtra<'src>> {
-    // let expr = expr.clone().boxed();
     choice((
         r#let(expr.clone()),
         r#return(expr.clone()),
@@ -664,14 +690,13 @@ fn import<'src>() -> impl ChumskyParser<'src, ParserStream<'src>, NodeId, Parser
 }
 
 fn item<'src>() -> impl ChumskyParser<'src, ParserStream<'src>, NodeId, ParserExtra<'src>> {
-    just(Token::Newline).or_not().ignore_then(
-        type_def()
-            .or(import())
-            .or(func_def())
-            .or(struct_def())
-            .or(const_def())
-            .or(static_def()),
-    )
+    type_def()
+        .then_ignore(punc!(Semicolon))
+        .or(import().then_ignore(punc!(Semicolon)))
+        .or(func_def())
+        .or(struct_def())
+        .or(const_def().then_ignore(punc!(Semicolon)))
+        .or(static_def().then_ignore(punc!(Semicolon)))
 }
 
 fn typename<'src>() -> impl ChumskyParser<'src, ParserStream<'src>, TypeName, ParserExtra<'src>> {

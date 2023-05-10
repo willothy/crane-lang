@@ -2,6 +2,7 @@ use anyhow::Result;
 use chumsky::{
     error,
     input::{BoxedStream, Stream},
+    text::{inline_whitespace, whitespace},
 };
 use std::path::PathBuf;
 use std::{fmt::Display, hash::Hash};
@@ -11,9 +12,106 @@ use chumsky::{span::Span as ChumskySpan, text::keyword};
 impl Display for Token {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Token::Keyword(k) => write!(f, "{}", k),
-            Token::Literal(l) => write!(f, "{}", l),
-            Token::Symbol(s) => write!(f, "{}", s),
+            Token::Keyword(k) => match k {
+                Keyword::Fn => write!(f, "fn"),
+                Keyword::Let => write!(f, "let"),
+                Keyword::If => write!(f, "if"),
+                Keyword::Else => write!(f, "else"),
+                Keyword::Return => write!(f, "return"),
+                Keyword::While => write!(f, "while"),
+                Keyword::For => write!(f, "for"),
+                Keyword::In => write!(f, "in"),
+                Keyword::Break => write!(f, "break"),
+                Keyword::Loop => write!(f, "loop"),
+                Keyword::Continue => write!(f, "continue"),
+                Keyword::Mod => write!(f, "mod"),
+                Keyword::Struct => write!(f, "struct"),
+                Keyword::Type => write!(f, "type"),
+                Keyword::Impl => write!(f, "impl"),
+                Keyword::As => write!(f, "as"),
+                Keyword::Import => write!(f, "import"),
+                Keyword::Super => write!(f, "super"),
+                Keyword::Self_ => write!(f, "self"),
+                Keyword::Root => write!(f, "root"),
+                Keyword::Const => write!(f, "const"),
+                Keyword::Static => write!(f, "static"),
+            },
+            Token::Literal(l) => match l {
+                Literal::Int(i) => write!(f, "{}", i),
+                Literal::Float(v) => write!(f, "{}", v),
+                Literal::String(s) => write!(f, "\"{}\"", s),
+                Literal::Char(c) => write!(f, "'{}'", c),
+                Literal::Bool(b) => write!(f, "{}", if *b { "true" } else { "false" }),
+            },
+            Token::Symbol(s) => match s {
+                Symbol::Arithmetic(s) => match s {
+                    Arithmetic::Plus => write!(f, "+"),
+                    Arithmetic::Minus => write!(f, "-"),
+                    Arithmetic::Times => write!(f, "*"),
+                    Arithmetic::Divide => write!(f, "/"),
+                    Arithmetic::Mod => write!(f, "%"),
+                },
+                Symbol::Bitwise(s) => match s {
+                    Bitwise::And => write!(f, "&"),
+                    Bitwise::Or => write!(f, "|"),
+                    Bitwise::BitwiseNot => write!(f, "~"),
+                    Bitwise::Xor => write!(f, "^"),
+                    Bitwise::ShiftRight => write!(f, ">>"),
+                    Bitwise::ShiftLeft => write!(f, "<<"),
+                },
+                Symbol::Logical(s) => match s {
+                    Logical::And => write!(f, "&&"),
+                    Logical::Or => write!(f, "||"),
+                    Logical::Not => write!(f, "!"),
+                },
+                Symbol::Comparison(s) => match s {
+                    Comparison::Equal => write!(f, "=="),
+                    Comparison::NotEqual => write!(f, "!="),
+                    Comparison::LessThan => write!(f, "<"),
+                    Comparison::GreaterThan => write!(f, ">"),
+                    Comparison::LessThanOrEqual => write!(f, "<="),
+                    Comparison::GreaterThanOrEqual => write!(f, ">="),
+                },
+                Symbol::Assignment(s) => match s {
+                    Assignment::Assign => write!(f, "="),
+                    Assignment::AddAssign => write!(f, "+="),
+                    Assignment::SubAssign => write!(f, "-="),
+                    Assignment::MulAssign => write!(f, "*="),
+                    Assignment::DivAssign => write!(f, "/="),
+                    Assignment::ModAssign => write!(f, "%="),
+                    Assignment::XorAssign => write!(f, "^="),
+                    Assignment::AndAssign => write!(f, "&="),
+                    Assignment::OrAssign => write!(f, "|="),
+                    Assignment::ShlAssign => write!(f, "<<="),
+                    Assignment::ShrAssign => write!(f, ">>="),
+                },
+                Symbol::Punctuation(s) => write!(
+                    f,
+                    "{}",
+                    match s {
+                        Punctuation::OpenParen => "(",
+                        Punctuation::CloseParen => ")",
+                        Punctuation::OpenBrace => "{",
+                        Punctuation::CloseBrace => "}",
+                        Punctuation::OpenBracket => "[",
+                        Punctuation::CloseBracket => "]",
+                        Punctuation::Comma => ",",
+                        Punctuation::Semicolon => ";",
+                        Punctuation::Colon => ":",
+                        Punctuation::DoubleColon => "::",
+                        Punctuation::Question => "?",
+                        Punctuation::RightArrow => "->",
+                        Punctuation::Dot => ".",
+                        Punctuation::Hash => "#",
+                        Punctuation::Ellipsis => "...",
+                        Punctuation::At => "@",
+                    }
+                ),
+                Symbol::Visibility(s) => match s {
+                    Visibility::Public => write!(f, "pub"),
+                    Visibility::Private => write!(f, ""),
+                },
+            },
             Token::Ident(i) => write!(f, "{}", i),
             Token::Visibility(v) => write!(f, "{}", v),
             Token::Newline => write!(f, "\n"),
@@ -827,6 +925,7 @@ pub fn lexer<'src>() -> impl Parser<'src, &'src str, Vec<Spanned<Token, Span>>, 
     token()
         .padded_by(comment.repeated())
         .padded()
+        // .padded_by(whitespace().or(comment.repeated()))
         // If we encounter an error, skip and attempt to lex the next character as a token instead
         .repeated()
         .collect::<Vec<Spanned<Token, Span>>>()
