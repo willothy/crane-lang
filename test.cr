@@ -58,7 +58,6 @@ pub fn func() -> f32 {
 		a
 	};
 
-	let x: ::a::i32 = 0;
 	let a: i32 = if x == 0 { 
 		5
 	} else { 

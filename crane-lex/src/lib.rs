@@ -2,6 +2,7 @@ use anyhow::Result;
 use chumsky::{
     error,
     input::{BoxedStream, Stream},
+    text::whitespace,
 };
 use std::path::PathBuf;
 use std::{fmt::Display, hash::Hash};
@@ -908,10 +909,10 @@ pub fn primitive<'src>() -> impl Parser<'src, &'src str, Spanned<Token, Span>, L
 
 pub fn token<'src>() -> impl Parser<'src, &'src str, Spanned<Token, Span>, LexerExtra<'src>> {
     choice((
+        primitive(),
         punctuation(),
         vis(),
         kw(),
-        // primitive(),
         symbol(),
         ident(),
         bool_literal(),
@@ -925,8 +926,8 @@ pub fn token<'src>() -> impl Parser<'src, &'src str, Spanned<Token, Span>, Lexer
 pub fn lexer<'src>() -> impl Parser<'src, &'src str, Vec<Spanned<Token, Span>>, LexerExtra<'src>> {
     let comment = just("#").then(none_of('\n').repeated()).padded();
     token()
-        .padded_by(comment.repeated())
-        .padded()
+        .padded_by(whitespace().or(comment.repeated()))
+        // .padded()
         // .padded_by(whitespace().or(comment.repeated()))
         // If we encounter an error, skip and attempt to lex the next character as a token instead
         .repeated()

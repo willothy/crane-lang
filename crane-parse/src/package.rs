@@ -89,7 +89,6 @@ pub mod pass {
     use crate::{
         expr::Expr,
         item::Item,
-        path::{ItemPath, PathPart, TypeName},
         unit::{NodeId, UnitId},
         ASTNode,
     };
@@ -541,10 +540,10 @@ pub mod pass {
                                 .map(|(name, ty)| format!("  {}: {}", name, ty))
                                 .collect::<Vec<_>>()
                                 .join(", "),
-                            ret_ty.as_ref().unwrap_or(&TypeName {
-                                path: ItemPath::from(vec![PathPart::Named("void".to_owned())]),
-                                ptr_depth: 0
-                            })
+                            ret_ty
+                                .as_ref()
+                                .map(|v| format!("-> {}", v))
+                                .unwrap_or("".to_string())
                         )
                         .unwrap(),
                         Item::StructDef { vis, name, fields } => writeln!(

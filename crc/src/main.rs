@@ -62,12 +62,27 @@ fn main() -> anyhow::Result<()> {
         if errors.len() > 0 {
             for error in errors {
                 let start = error.span().start();
+                let end = error.span().end();
 
                 let start_token = tokens.get(start).unwrap();
+                let end_token = tokens.get(end).unwrap();
                 let source = cache.fetch(Path::new(&filename)).unwrap();
 
-                let start = start_token.span.start();
-                let end = start_token.span.end();
+                let offset = source.get_offset_line(start_token.span.start()).unwrap();
+                let extra = if offset.2 % 2 == 0
+                    || start_token
+                        .span
+                        .start()
+                        .checked_sub(start_token.span.end())
+                        .unwrap_or(0)
+                        == 0
+                {
+                    1
+                } else {
+                    0
+                };
+                let start = offset.0.span().start + offset.1 + offset.2 + (extra * 2);
+                let end = end_token.span.end() + offset.1;
 
                 let expected = Label::new((&filename, start..end))
                     .with_message(format!(

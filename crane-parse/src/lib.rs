@@ -27,7 +27,8 @@ use expr::Expr;
 use item::Item;
 use ops::{AssignOp, BinaryOp, UnaryOp};
 use package::Package;
-use path::{ItemPath, PathPart, TypeName};
+use path::{ItemPath, PathPart};
+use ty::Signature;
 use unit::{NodeId, Unit, UnitId};
 
 new_key_type! {
@@ -153,7 +154,7 @@ fn ident_str<'src>() -> impl ChumskyParser<'src, ParserStream<'src>, String, Par
 }
 
 fn params<'src>(
-) -> impl ChumskyParser<'src, ParserStream<'src>, Vec<(String, TypeName)>, ParserExtra<'src>> {
+) -> impl ChumskyParser<'src, ParserStream<'src>, Vec<(String, Signature)>, ParserExtra<'src>> {
     ident_str()
         .then_ignore(punc!(Colon))
         .then(typename())
@@ -567,8 +568,8 @@ fn func_def<'src>() -> impl ChumskyParser<'src, ParserStream<'src>, NodeId, Pars
         .map_with_state(
             |((((vis, name), params), ret_ty), body): (
                 (
-                    ((Visibility, String), Vec<(String, TypeName)>),
-                    Option<TypeName>,
+                    ((Visibility, String), Vec<(String, Signature)>),
+                    Option<Signature>,
                 ),
                 NodeId,
             ),
@@ -707,17 +708,8 @@ fn item<'src>() -> impl ChumskyParser<'src, ParserStream<'src>, NodeId, ParserEx
         .or(static_def().then_ignore(punc!(Semicolon)))
 }
 
-fn typename<'src>() -> impl ChumskyParser<'src, ParserStream<'src>, TypeName, ParserExtra<'src>> {
-    math!(Times).repeated().foldr(
-        path::path(0).map(|p| TypeName {
-            path: p,
-            ptr_depth: 0,
-        }),
-        |_, p: TypeName| TypeName {
-            path: p.path,
-            ptr_depth: p.ptr_depth + 1,
-        },
-    )
+fn typename<'src>() -> impl ChumskyParser<'src, ParserStream<'src>, Signature, ParserExtra<'src>> {
+    ty::parser()
 }
 
 fn unit<'src>() -> impl ChumskyParser<'src, ParserStream<'src>, UnitId, ParserExtra<'src>> {

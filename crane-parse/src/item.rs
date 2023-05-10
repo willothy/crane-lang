@@ -1,7 +1,8 @@
 use crane_lex::Visibility;
 
 use crate::{
-    path::{ItemPath, TypeName},
+    path::ItemPath,
+    ty::Signature,
     unit::{NodeId, UnitId},
 };
 
@@ -20,35 +21,35 @@ pub enum Item {
     FunctionDef {
         vis: Visibility,
         name: String,
-        params: Vec<(String, TypeName)>,
-        ret_ty: Option<TypeName>,
+        params: Vec<(String, Signature)>,
+        ret_ty: Option<Signature>,
         body: NodeId,
     },
     FunctionDecl {
         vis: Visibility,
         name: String,
-        args: Vec<(String, TypeName)>,
-        ret_ty: Option<TypeName>,
+        args: Vec<(String, Signature)>,
+        ret_ty: Option<Signature>,
     },
     StructDef {
         vis: Visibility,
         name: String,
-        fields: Vec<(String, TypeName)>,
+        fields: Vec<(String, Signature)>,
     },
     TypeDef {
         vis: Visibility,
         name: String,
-        ty: TypeName,
+        ty: Signature,
     },
     ConstDef {
         vis: Visibility,
         name: String,
-        ty: TypeName,
+        ty: Signature,
         value: NodeId,
     },
     StaticDef {
         vis: Visibility,
-        ty: TypeName,
+        ty: Signature,
         name: String,
         value: NodeId,
     },

@@ -2,7 +2,8 @@ use crane_lex::Literal;
 
 use crate::{
     ops::{AssignOp, BinaryOp, UnaryOp},
-    path::{ItemPath, TypeName},
+    path::ItemPath,
+    ty::Signature,
     unit::NodeId,
 };
 
@@ -39,7 +40,7 @@ pub enum Expr {
     },
     Let {
         name: String,
-        ty: TypeName,
+        ty: Signature,
         value: Option<NodeId>,
     },
     Break {
@@ -53,7 +54,7 @@ pub enum Expr {
     },
     Continue,
     Cast {
-        ty: TypeName,
+        ty: Signature,
         expr: NodeId,
     },
     Block {
@@ -78,8 +79,8 @@ pub enum Expr {
         exprs: Vec<NodeId>,
     },
     Closure {
-        params: Vec<(String, TypeName)>,
-        ret_ty: Option<TypeName>,
+        params: Vec<(String, Signature)>,
+        ret_ty: Option<Signature>,
         body: NodeId,
     },
 }

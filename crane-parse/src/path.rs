@@ -10,21 +10,6 @@ use crane_lex::Token;
 use crate::ParserExtra;
 
 #[derive(Debug, PartialEq, Clone)]
-pub struct TypeName {
-    pub path: ItemPath,
-    pub ptr_depth: usize,
-}
-
-impl Display for TypeName {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        for _ in 0..self.ptr_depth {
-            write!(f, "*")?;
-        }
-        write!(f, "{}", self.path)
-    }
-}
-
-#[derive(Debug, PartialEq, Clone)]
 pub enum PathPart {
     Root,
     Self_,
