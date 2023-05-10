@@ -13,10 +13,10 @@ static S: i32 = 5;
 
 
 pub fn inc(x: f32) -> f32 { x + 1 }
+pub fn dec(x: f32) -> f32 { x - 1 }
 
 const C: u8 = 2;
 
-pub fn dec(x: f32) -> f32 { x - 1 }
 
 
 pub fn func() -> f32 {
@@ -79,3 +79,4 @@ pub fn func() -> f32 {
 	
 	a + a
 }
+
