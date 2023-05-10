@@ -177,11 +177,6 @@ pub mod pass {
             new.result = false;
             new
         }
-
-        fn indent_by(mut self, indent: usize) -> Self {
-            self.indent += indent;
-            self
-        }
     }
 
     impl PrintNode<'_> {
@@ -463,7 +458,17 @@ pub mod pass {
                                 write!(input.out.borrow_mut(), " -> {}", ret_ty).unwrap();
                             }
                             write!(input.out.borrow_mut(), " ").unwrap();
-                            self.inspect(scope, input.with().node(*body).nested());
+                            if let ASTNode::Expr(Expr::Block { .. }) = scope
+                                .unit(input.unit)
+                                .unwrap()
+                                .get_node(input.node)
+                                .unwrap()
+                            {
+                                self.inspect(scope, input.with().node(*body).nested());
+                            } else {
+                                write!(input.out.borrow_mut(), "=> ").unwrap();
+                                self.inspect(scope, input.with().node(*body).nested());
+                            }
                         }
                     };
                     if input.result {

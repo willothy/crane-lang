@@ -1,12 +1,6 @@
-use std::{
-    io::stdout,
-    path::{Path, PathBuf},
-};
+use std::path::Path;
 
-use ariadne::{
-    sources, Cache, ColorGenerator, Config, FileCache, FnCache, Label, LabelAttach, Report,
-    ReportKind, Source,
-};
+use ariadne::{Cache, FileCache, Label, Report, ReportKind, Source};
 use chumsky::span::Span;
 use crane_lex as lex;
 use crane_parse as parse;
@@ -35,21 +29,15 @@ fn main() -> anyhow::Result<()> {
         println!("Encountered lexer errors");
     }
     for error in errors {
-        // println!("{}", error);
         let mut label = Label::new((&filename, error.span().start()..error.span().end()));
-        for (msg, span) in error.contexts() {
+        for (msg, _span) in error.contexts() {
             label = label.with_message(msg);
         }
-        let mut report = Report::build(ReportKind::Error, &filename, error.span().start())
+        Report::build(ReportKind::Error, &filename, error.span().start())
             .with_message(error.reason())
             .with_label(label)
             .finish()
-            .print((&filename, Source::from(&contents_str)));
-        // .print(sources(vec![(filename.as_str(), contents_str.as_str())]));
-
-        // report.eprint(cache)?;
-        // let mut s = stdout();
-        // report.write(cache, std::io::BufWriter::new(&mut s));
+            .print((&filename, Source::from(&contents_str)))?;
     }
 
     if !lexer_res.has_output() {
@@ -111,7 +99,7 @@ fn main() -> anyhow::Result<()> {
 
                 report.finish().print((&filename, source.clone()))?;
             }
-            return Ok(());
+            // return Ok(());
         }
     };
 

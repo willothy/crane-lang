@@ -1,5 +1,6 @@
 use anyhow::Result;
 use chumsky::input::BoxedStream;
+use chumsky::prelude::Rich;
 use chumsky::primitive::{any, choice, just};
 use chumsky::recovery::{nested_delimiters, via_parser};
 use chumsky::recursive::recursive;
@@ -290,7 +291,12 @@ fn closure<'src>(
     kw!(Fn)
         .ignore_then(params().delimited_by(punc!(OpenParen), punc!(CloseParen)))
         .then(punc!(RightArrow).ignore_then(typename()).or_not())
-        .then(bit!(Or).ignore_then(expr.clone()).or(block(expr.clone())))
+        .then(
+            punc!(FatArrow)
+                .ignore_then(expr.clone())
+                .or(block(expr.clone())),
+        )
+        // .then(block(expr.clone()))
         .map_with_state(
             |((params, ret_ty), body): ((Vec<_>, Option<_>), NodeId),
              _span,
@@ -545,16 +551,18 @@ fn func_def<'src>() -> impl ChumskyParser<'src, ParserStream<'src>, NodeId, Pars
     vis()
         .then_ignore(kw!(Fn))
         .then(ident_str())
-        .then_ignore(punc!(OpenParen))
-        .then(params())
-        .then_ignore(punc!(CloseParen))
+        .then(
+            params()
+                .delimited_by(punc!(OpenParen), punc!(CloseParen))
+                .map_err(|e| Rich::custom(*e.span(), "Unclosed parenthesis")),
+        )
         .then(punc!(RightArrow).ignore_then(typename()).or_not())
         .then(
-            bit!(Or)
-                .ignore_then(expr().map_with_state(|expr, _span, state| {
-                    state.current_unit_mut().make_result(expr)
-                }))
-                .or(block(expr().boxed())),
+            block(expr().boxed()), // bit!(Or)
+                                   //     .ignore_then(expr().map_with_state(|expr, _span, state| {
+                                   //         state.current_unit_mut().make_result(expr)
+                                   //     }))
+                                   //     .or(block(expr().boxed())),
         )
         .map_with_state(
             |((((vis, name), params), ret_ty), body): (

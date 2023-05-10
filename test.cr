@@ -12,16 +12,17 @@ struct Testing {
 static S: i32 = 5;
 
 
-pub fn inc(x: f32) -> f32 | x + 1
+pub fn inc(x: f32) -> f32 { x + 1 }
 
 const C: u8 = 2;
 
-pub fn dec(x: f32) -> f32 | x - 1
+pub fn dec(x: f32) -> f32 { x - 1 }
+
 
 pub fn func() -> f32 {
 	loop {
 		let a: f32 = test(5 + 5);
-		let x: A = fn(x: i32) -> i32 | 0;
+		let x: A = fn(x: i32) -> i32 => 0;
 	};
 
 	let t: Testing = Testing {

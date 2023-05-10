@@ -2,7 +2,6 @@ use anyhow::Result;
 use chumsky::{
     error,
     input::{BoxedStream, Stream},
-    text::{inline_whitespace, whitespace},
 };
 use std::path::PathBuf;
 use std::{fmt::Display, hash::Hash};
@@ -89,6 +88,7 @@ impl Display for Token {
                     f,
                     "{}",
                     match s {
+                        Punctuation::FatArrow => "=>",
                         Punctuation::OpenParen => "(",
                         Punctuation::CloseParen => ")",
                         Punctuation::OpenBrace => "{",
@@ -324,6 +324,7 @@ pub enum Punctuation {
     DoubleColon,
     Question,
     RightArrow,
+    FatArrow,
     Dot,
     Hash,
     Ellipsis,
@@ -770,6 +771,7 @@ pub fn ident<'src>() -> impl Parser<'src, &'src str, Spanned<Token, Span>, Lexer
 pub fn symbol<'src>() -> impl Parser<'src, &'src str, Spanned<Token, Span>, LexerExtra<'src>> {
     choice((
         choice((
+            just("=>").map(|_| Symbol::Punctuation(Punctuation::FatArrow)),
             just("->").map(|_| Symbol::Punctuation(Punctuation::RightArrow)),
             just("==").map(|_| Symbol::Comparison(Comparison::Equal)),
             just("!=").map(|_| Symbol::Comparison(Comparison::NotEqual)),
