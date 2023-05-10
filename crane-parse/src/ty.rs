@@ -1,7 +1,6 @@
-use chumsky::Parser;
-use crane_lex::{self as lex, Primitive, Token};
+use crane_lex::Primitive;
 
-use crate::{path::TypeName, ParserExtra, ParserStream};
+use crate::path::TypeName;
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum Signature {
