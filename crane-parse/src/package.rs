@@ -400,14 +400,10 @@ pub mod pass {
                             )
                             .unwrap();
                         }
-                        Expr::Let { name, ty, value } => {
-                            write!(
-                                input.out.borrow_mut(),
-                                "{indent_str}let {name}: {ty}",
-                                name = name,
-                                ty = ty,
-                            )
-                            .unwrap();
+                        Expr::Let { lhs, ty, value } => {
+                            write!(input.out.borrow_mut(), "{indent_str}let ").unwrap();
+                            self.inspect(scope, input.with().node(*lhs));
+                            write!(input.out.borrow_mut(), ": {ty}", ty = ty).unwrap();
                             if let Some(value) = value {
                                 write!(input.out.borrow_mut(), " = ").unwrap();
                                 self.inspect(scope, input.with().node(*value).nested());
@@ -430,7 +426,26 @@ pub mod pass {
                         Expr::Continue => {
                             write!(input.out.borrow_mut(), "{indent_str}continue",).unwrap()
                         }
-                        Expr::List { .. } => todo!(),
+                        Expr::List { exprs } => {
+                            write!(input.out.borrow_mut(), "{indent_str}[",).unwrap();
+                            for (i, item) in exprs.iter().enumerate() {
+                                if i != 0 {
+                                    write!(input.out.borrow_mut(), ", ").unwrap();
+                                }
+                                self.inspect(scope, input.with().node(*item).nested());
+                            }
+                            write!(input.out.borrow_mut(), "]",).unwrap();
+                        }
+                        Expr::Tuple { exprs } => {
+                            write!(input.out.borrow_mut(), "{indent_str}(",).unwrap();
+                            for (i, item) in exprs.iter().enumerate() {
+                                if i != 0 {
+                                    write!(input.out.borrow_mut(), ", ").unwrap();
+                                }
+                                self.inspect(scope, input.with().node(*item).nested());
+                            }
+                            write!(input.out.borrow_mut(), ")",).unwrap();
+                        }
                         Expr::Closure {
                             params,
                             ret_ty,

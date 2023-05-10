@@ -22,7 +22,7 @@ pub fn dec(x: f32) -> f32 { x - 1 }
 pub fn func() -> f32 {
 	loop {
 		let a: f32 = test(5 + 5);
-		let x: A = fn(x: i32) -> i32 => 0;
+		let x: fn(i32) -> i32 = fn(x: i32) -> i32 => 0;
 	};
 
 	let t: Testing = Testing {
@@ -34,6 +34,13 @@ pub fn func() -> f32 {
 		a: 5,
 		b: 10,
 	};
+
+	let Testing {
+		a: a,
+		b: b
+	}: _ = t;
+
+	let (a, b): (i32, i32) = (1, 2);
 
 	let c: _ = fn() {
 		print(5);

@@ -39,7 +39,7 @@ pub enum Expr {
         rhs: NodeId,
     },
     Let {
-        name: String,
+        lhs: NodeId,
         ty: Signature,
         value: Option<NodeId>,
     },
@@ -82,5 +82,8 @@ pub enum Expr {
         params: Vec<(String, Signature)>,
         ret_ty: Option<Signature>,
         body: NodeId,
+    },
+    Tuple {
+        exprs: Vec<NodeId>,
     },
 }

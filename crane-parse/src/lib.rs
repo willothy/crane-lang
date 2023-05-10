@@ -217,18 +217,33 @@ fn equality<'src>() -> impl ChumskyParser<'src, ParserStream<'src>, BinaryOp, Pa
     }
 }
 
+// fn destructure<'src>() -> impl ChumskyParser<'src, ParserStream<'src>, NodeId, ParserExtra<'src>> {
+//     choice((
+//         ident(),
+//         ident()
+//             .separated_by(punc!(Comma))
+//             .delimited_by(punc!(OpenParen), punc!(CloseParen)),
+//     ))
+// }
+
+// fn lhs_expr<'src>(
+//     expr: impl ChumskyParser<'src, ParserStream<'src>, NodeId, ParserExtra<'src>>,
+// ) -> impl ChumskyParser<'src, ParserStream<'src>, NodeId, ParserExtra<'src>> {
+//     choice((struct_init()))
+// }
+
 fn r#let<'src>(
-    expr: impl ChumskyParser<'src, ParserStream<'src>, NodeId, ParserExtra<'src>>,
+    expr: impl ChumskyParser<'src, ParserStream<'src>, NodeId, ParserExtra<'src>> + Clone,
 ) -> impl ChumskyParser<'src, ParserStream<'src>, NodeId, ParserExtra<'src>> {
     kw!(Let)
-        .ignore_then(ident_str())
+        .ignore_then(expr.clone())
         .then_ignore(punc!(Colon))
         .then(typename())
         .then(assign!(Assign).ignore_then(expr.or_not()))
-        .map_with_state(|((name, ty), value), _span, state: &mut ParserState| {
+        .map_with_state(|((lhs, ty), value), _span, state: &mut ParserState| {
             state
                 .current_unit_mut()
-                .new_expr(Expr::Let { name, ty, value })
+                .new_expr(Expr::Let { lhs, ty, value })
         })
 }
 
@@ -283,6 +298,19 @@ fn list<'src>(
         .delimited_by(punc!(OpenBracket), punc!(CloseBracket))
         .map_with_state(|exprs, _span, state: &mut ParserState| {
             state.current_unit_mut().new_expr(Expr::List { exprs })
+        })
+}
+
+fn tuple<'src>(
+    expr: impl ChumskyParser<'src, ParserStream<'src>, NodeId, ParserExtra<'src>>,
+) -> impl ChumskyParser<'src, ParserStream<'src>, NodeId, ParserExtra<'src>> {
+    expr.separated_by(punc!(Comma))
+        .at_least(1)
+        .allow_trailing()
+        .collect::<Vec<NodeId>>()
+        .delimited_by(punc!(OpenParen), punc!(CloseParen))
+        .map_with_state(|exprs, _span, state: &mut ParserState| {
+            state.current_unit_mut().new_expr(Expr::Tuple { exprs })
         })
 }
 
@@ -371,6 +399,7 @@ fn expr<'src>() -> impl ChumskyParser<'src, ParserStream<'src>, NodeId, ParserEx
             r#while,
             list(expr.clone()),
             closure(expr.clone()),
+            tuple(expr.clone()),
             expr.clone()
                 .delimited_by(punc!(OpenParen), punc!(CloseParen)),
         ))

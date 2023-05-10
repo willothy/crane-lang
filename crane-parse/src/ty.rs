@@ -90,13 +90,20 @@ pub fn parser<'src>() -> impl Parser<'src, ParserStream<'src>, Signature, Parser
                 .delimited_by(punc!(OpenBracket), punc!(CloseBracket))
                 .map(|(ty, len)| Signature::Array(Box::new(ty), len))
                 .boxed(),
+            signature
+                .clone()
+                .separated_by(punc!(Comma))
+                .collect::<Vec<Signature>>()
+                .delimited_by(punc!(OpenParen), punc!(CloseParen))
+                .map(|types| Signature::Tuple(types))
+                .boxed(),
             path(0).map(Signature::Name).boxed(),
             kw!(Fn).ignore_then(
                 signature
                     .clone()
                     .separated_by(punc!(Comma))
                     .collect::<Vec<Signature>>()
-                    // .delimited_by(punc!(OpenParen), punc!(CloseParen))
+                    .delimited_by(punc!(OpenParen), punc!(CloseParen))
                     .then(punc!(RightArrow).ignore_then(signature.clone()).or_not())
                     .map(|(params, ret_ty)| Signature::Function {
                         params,
