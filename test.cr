@@ -47,8 +47,9 @@ pub fn func() -> f32 {
 
 	let (a, b): (i32, i32) = (1, 2);
 
-	let c: _ = fn() {
-		io::stdout().write("test");
+	let messages: [str; 2] = ["hello", "goodbye"];
+	let hello: _ = fn() {
+		io::stdout().write(messages[0]);
 	};
 
 	let x: _ = c as *i32;

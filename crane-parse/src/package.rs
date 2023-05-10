@@ -278,6 +278,16 @@ pub mod pass {
                             member,
                             computed,
                         } => {
+                            write!(
+                                input.out.borrow_mut(),
+                                "{indent}",
+                                indent = if input.newline || input.result {
+                                    indent_str
+                                } else {
+                                    "".to_owned()
+                                }
+                            )
+                            .unwrap();
                             self.inspect(scope, input.with().node(*object).nested());
                             if *computed {
                                 write!(input.out.borrow_mut(), "[").unwrap();
@@ -429,7 +439,16 @@ pub mod pass {
                             write!(input.out.borrow_mut(), "{indent_str}continue",).unwrap()
                         }
                         Expr::List { exprs } => {
-                            write!(input.out.borrow_mut(), "{indent_str}[",).unwrap();
+                            write!(
+                                input.out.borrow_mut(),
+                                "{indent_str}[",
+                                indent_str = if input.newline || input.result {
+                                    indent_str
+                                } else {
+                                    "".to_owned()
+                                }
+                            )
+                            .unwrap();
                             for (i, item) in exprs.iter().enumerate() {
                                 if i != 0 {
                                     write!(input.out.borrow_mut(), ", ").unwrap();
@@ -439,7 +458,16 @@ pub mod pass {
                             write!(input.out.borrow_mut(), "]",).unwrap();
                         }
                         Expr::Tuple { exprs } => {
-                            write!(input.out.borrow_mut(), "{indent_str}(",).unwrap();
+                            write!(
+                                input.out.borrow_mut(),
+                                "{indent_str}(",
+                                indent_str = if input.newline || input.result {
+                                    indent_str
+                                } else {
+                                    "".to_owned()
+                                }
+                            )
+                            .unwrap();
                             for (i, item) in exprs.iter().enumerate() {
                                 if i != 0 {
                                     write!(input.out.borrow_mut(), ", ").unwrap();

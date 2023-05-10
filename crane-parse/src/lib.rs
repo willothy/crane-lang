@@ -1,6 +1,4 @@
-use std::cell::RefCell;
 use std::fmt::Write;
-use std::rc::Rc;
 
 use anyhow::Result;
 use chumsky::input::BoxedStream;
@@ -456,7 +454,26 @@ fn expr<'src>() -> impl Parser<'src, ParserStream<'src>, NodeId, ParserExtra<'sr
                 .current_unit_mut()
                 .new_expr(Expr::Call { callee: f, args })
         });
-        let field_access = call
+
+        let index = expr
+            .clone()
+            .delimited_by(punc!(OpenBracket), punc!(CloseBracket));
+
+        let index_access = call
+            .clone()
+            .foldl_with_state(
+                index.repeated(),
+                |object, member, state: &mut ParserState| {
+                    state.current_unit_mut().new_expr(Expr::MemberAccess {
+                        object,
+                        member,
+                        computed: true,
+                    })
+                },
+            )
+            .boxed();
+
+        let field_access = index_access
             .foldl_with_state(
                 punc!(Dot).ignore_then(expr.clone()).repeated(),
                 |lhs, rhs, state: &mut ParserState| {
@@ -468,6 +485,20 @@ fn expr<'src>() -> impl Parser<'src, ParserStream<'src>, NodeId, ParserExtra<'sr
                 },
             )
             .boxed();
+
+        // let index_access = field_access
+        //     .then(
+        //         expr.clone()
+        //             .delimited_by(punc!(OpenBracket), punc!(CloseBracket)),
+        //     )
+        //     .map_with_state(|(object, member), _span, state: &mut ParserState| {
+        //         state.current_unit_mut().new_expr(Expr::MemberAccess {
+        //             object,
+        //             member,
+        //             computed: true,
+        //         })
+        //     })
+        //     .boxed();
 
         let unary_op = math!(Minus)
             .map(|_| UnaryOp::Neg)
