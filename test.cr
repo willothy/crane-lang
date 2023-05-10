@@ -18,7 +18,6 @@ pub fn dec(x: f32) -> f32 { x - 1 }
 const C: u8 = 2;
 
 
-
 pub fn func() -> f32 {
 	loop {
 		let a: f32 = test(5 + 5);
@@ -43,11 +42,13 @@ pub fn func() -> f32 {
 	let x: i32;
 
 	let y = 5;
+	let z = &y;
+	*z = 1;
 
 	let (a, b): (i32, i32) = (1, 2);
 
 	let c: _ = fn() {
-		print(5);
+		io::stdout().write("test");
 	};
 
 	let x: _ = c as *i32;

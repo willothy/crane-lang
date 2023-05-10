@@ -855,18 +855,16 @@ pub fn float_literal<'src>() -> impl Parser<'src, &'src str, Spanned<Token, Span
 
 pub fn str_literal<'src>() -> impl Parser<'src, &'src str, Spanned<Token, Span>, LexerExtra<'src>> {
     just("\"")
-        .then(any().repeated())
+        .ignore_then(none_of("\"").repeated().collect::<String>())
         .then_ignore(just("\""))
-        .map_with_state(
-            move |(s, _), span: SimpleSpan, state: &mut LexerState| Spanned {
-                span: Span {
-                    source: state.source_id.clone(),
-                    start: span.start(),
-                    end: span.end(),
-                },
-                value: Token::Literal(Literal::String(s.to_owned())),
+        .map_with_state(move |s, span: SimpleSpan, state: &mut LexerState| Spanned {
+            span: Span {
+                source: state.source_id.clone(),
+                start: span.start(),
+                end: span.end(),
             },
-        )
+            value: Token::Literal(Literal::String(s)),
+        })
 }
 
 pub fn char_literal<'src>() -> impl Parser<'src, &'src str, Spanned<Token, Span>, LexerExtra<'src>>

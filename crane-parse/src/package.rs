@@ -126,7 +126,7 @@ pub mod pass {
     }
 
     impl PrintNodeCtx {
-        fn new(unit: UnitId, node: NodeId, out: Rc<RefCell<dyn Write>>) -> Self {
+        pub fn new(unit: UnitId, node: NodeId, out: Rc<RefCell<dyn Write>>) -> Self {
             Self {
                 unit,
                 node,

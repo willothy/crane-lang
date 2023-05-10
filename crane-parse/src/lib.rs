@@ -1,3 +1,7 @@
+use std::cell::RefCell;
+use std::fmt::Write;
+use std::rc::Rc;
+
 use anyhow::Result;
 use chumsky::input::BoxedStream;
 use chumsky::prelude::Rich;
@@ -227,14 +231,18 @@ fn equality<'src>() -> impl Parser<'src, ParserStream<'src>, BinaryOp, ParserExt
     }
 }
 
-fn lhs_expr<'src>(
+fn let_lhs_expr<'src>(
     expr: impl Parser<'src, ParserStream<'src>, NodeId, ParserExtra<'src>> + Clone,
 ) -> impl Parser<'src, ParserStream<'src>, NodeId, ParserExtra<'src>> {
     choice((
+        // struct destructuring
         struct_init(expr.clone()),
-        ident(),
+        // tuple destructuring
         tuple(expr.clone()),
+        // fixed-size array destructuring
         list(expr.clone()),
+        // Standard name
+        ident(),
     ))
 }
 
@@ -242,7 +250,7 @@ fn r#let<'src>(
     expr: impl Parser<'src, ParserStream<'src>, NodeId, ParserExtra<'src>> + Clone,
 ) -> impl Parser<'src, ParserStream<'src>, NodeId, ParserExtra<'src>> {
     kw!(Let)
-        .ignore_then(lhs_expr(expr.clone()))
+        .ignore_then(let_lhs_expr(expr.clone()))
         .then(punc!(Colon).ignore_then(typename()).or_not())
         .then(assign!(Assign).ignore_then(expr).or_not())
         .map_with_state(|((lhs, ty), value), _span, state: &mut ParserState| {
@@ -448,6 +456,18 @@ fn expr<'src>() -> impl Parser<'src, ParserStream<'src>, NodeId, ParserExtra<'sr
                 .current_unit_mut()
                 .new_expr(Expr::Call { callee: f, args })
         });
+        let field_access = call
+            .foldl_with_state(
+                punc!(Dot).ignore_then(expr.clone()).repeated(),
+                |lhs, rhs, state: &mut ParserState| {
+                    state.current_unit_mut().new_expr(Expr::MemberAccess {
+                        object: lhs,
+                        member: rhs,
+                        computed: false,
+                    })
+                },
+            )
+            .boxed();
 
         let unary_op = math!(Minus)
             .map(|_| UnaryOp::Neg)
@@ -463,7 +483,7 @@ fn expr<'src>() -> impl Parser<'src, ParserStream<'src>, NodeId, ParserExtra<'sr
                         .current_unit_mut()
                         .new_expr(Expr::UnaryOp { op, operand })
                 })
-                .or(call)
+                .or(field_access)
         })
         .boxed();
 
@@ -589,7 +609,6 @@ fn vis<'src>() -> impl Parser<'src, ParserStream<'src>, Visibility, ParserExtra<
 
 mod parsers {
     pub mod unit {
-        use chumsky::recovery::skip_then_retry_until;
 
         use super::super::*;
 
