@@ -1,3 +1,3 @@
 
-[build]
-rustflags = ["-Zshare-generics"]
+# [build]
+# rustflags = ["-Zshare-generics"]

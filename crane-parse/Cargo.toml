@@ -8,7 +8,7 @@ edition = "2021"
 
 [dependencies]
 anyhow = "1.0.71"
-ariadne = { version = "0.2.0", features = ["auto-color"] }
+ariadne = { git = "https://github.com/zesterer/ariadne" }
 chumsky = { git = "https://github.com/zesterer/chumsky", features = ["memoization"] }
 crane-lex = { path = "../crane-lex/" }
 log = "0.4.17"
