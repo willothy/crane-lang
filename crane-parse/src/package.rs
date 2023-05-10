@@ -403,7 +403,9 @@ pub mod pass {
                         Expr::Let { lhs, ty, value } => {
                             write!(input.out.borrow_mut(), "{indent_str}let ").unwrap();
                             self.inspect(scope, input.with().node(*lhs));
-                            write!(input.out.borrow_mut(), ": {ty}", ty = ty).unwrap();
+                            if let Some(ty) = ty {
+                                write!(input.out.borrow_mut(), ": {ty}", ty = ty).unwrap();
+                            }
                             if let Some(value) = value {
                                 write!(input.out.borrow_mut(), " = ").unwrap();
                                 self.inspect(scope, input.with().node(*value).nested());

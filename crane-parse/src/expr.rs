@@ -40,7 +40,7 @@ pub enum Expr {
     },
     Let {
         lhs: NodeId,
-        ty: Signature,
+        ty: Option<Signature>,
         value: Option<NodeId>,
     },
     Break {

@@ -38,7 +38,11 @@ pub fn func() -> f32 {
 	let Testing {
 		a: a,
 		b: b
-	}: _ = t;
+	} = t;
+
+	let x: i32;
+
+	let y = 5;
 
 	let (a, b): (i32, i32) = (1, 2);
 

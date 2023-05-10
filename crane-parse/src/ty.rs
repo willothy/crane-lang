@@ -9,7 +9,7 @@ use crane_lex::{self as lex, Arithmetic, Keyword, Primitive, Punctuation, Symbol
 use lex::Literal;
 
 use crate::{
-    kw, /* kw,  */ math,
+    kw, math,
     path::{path, ItemPath},
     punc, ParserExtra, ParserStream,
 };
