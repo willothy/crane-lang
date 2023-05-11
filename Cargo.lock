@@ -100,12 +100,19 @@ dependencies = [
 
 [[package]]
 name = "crane-lex"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "anyhow",
  "ariadne",
  "chumsky",
  "log",
+]
+
+[[package]]
+name = "crane-mir"
+version = "0.1.0"
+dependencies = [
+ "crane-parse",
 ]
 
 [[package]]

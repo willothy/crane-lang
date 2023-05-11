@@ -1,0 +1,12 @@
+[package]
+name = "crane-mir"
+version = "0.1.0"
+edition = "2021"
+authors = ["Will Hopkins <willothyh@gmail.com>"]
+license = "MIT"
+description = "Intermediate representation for the Crane programming language."
+repository = "https://github.com/willothy/crane-lang"
+readme = "../README.md"
+
+[dependencies]
+crane-parse = { version = "0.1.0", path = "../parse/" }
