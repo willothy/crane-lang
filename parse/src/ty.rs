@@ -1,11 +1,11 @@
 use std::fmt::Display;
 
 use chumsky::{
-    primitive::{any, choice, just},
+    primitive::{any, choice},
     recursive::recursive,
     IterParser, Parser,
 };
-use crane_lex::{self as lex, Arithmetic, Keyword, Primitive, Punctuation, Symbol, Token};
+use crane_lex::{self as lex, Primitive, Token};
 use lex::Literal;
 
 use crate::{
