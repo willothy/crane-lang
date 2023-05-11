@@ -1,10 +1,7 @@
-use std::fmt::Write;
-
 use anyhow::Result;
 use chumsky::input::BoxedStream;
 use chumsky::prelude::Rich;
 use chumsky::primitive::{any, choice, just};
-use chumsky::recovery::{nested_delimiters, via_parser};
 use chumsky::recursive::recursive;
 use chumsky::span::SimpleSpan;
 use chumsky::{select, IterParser, ParseResult, Parser};
@@ -418,25 +415,11 @@ fn expr<'src>() -> impl Parser<'src, ParserStream<'src>, NodeId, ParserExtra<'sr
                 .delimited_by(punc!(OpenParen), punc!(CloseParen)),
         ))
         // Attempt to recover anything that looks like a parenthesised expression but contains errors
-        .recover_with(via_parser(nested_delimiters(
-            punc!(@OpenParen),
-            punc!(@CloseParen),
-            [
-                (punc!(@OpenBracket), punc!(@CloseBracket)),
-                (punc!(@OpenBrace), punc!(@CloseBrace)),
-            ],
-            |_span| NodeId::default(),
-        )))
+        .recover_with(Fallback::via_parens())
         // Attempt to recover anything that looks like a list but contains errors
-        .recover_with(via_parser(nested_delimiters(
-            punc!(@OpenBracket),
-            punc!(@CloseBracket),
-            [
-                (punc!(@OpenParen), punc!(@CloseParen)),
-                (punc!(@OpenBrace), punc!(@CloseBrace)),
-            ],
-            |_span| NodeId::default(),
-        )))
+        .recover_with(Fallback::via_brackets())
+        // Attempt to recover anything that looks like a block but contains errors
+        .recover_with(Fallback::via_braces())
         .boxed();
 
         let items = expr
@@ -485,20 +468,6 @@ fn expr<'src>() -> impl Parser<'src, ParserStream<'src>, NodeId, ParserExtra<'sr
                 },
             )
             .boxed();
-
-        // let index_access = field_access
-        //     .then(
-        //         expr.clone()
-        //             .delimited_by(punc!(OpenBracket), punc!(CloseBracket)),
-        //     )
-        //     .map_with_state(|(object, member), _span, state: &mut ParserState| {
-        //         state.current_unit_mut().new_expr(Expr::MemberAccess {
-        //             object,
-        //             member,
-        //             computed: true,
-        //         })
-        //     })
-        //     .boxed();
 
         let unary_op = math!(Minus)
             .map(|_| UnaryOp::Neg)
