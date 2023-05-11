@@ -1,6 +1,6 @@
 [workspace]
 members = [
     "crc",
-	"crane-lex",
-	"crane-parse"
+	"lex",
+	"parse"
 ]
