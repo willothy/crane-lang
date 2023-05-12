@@ -1,16 +1,24 @@
 use slotmap::SlotMap;
 
-use crate::unit::{Unit, UnitId};
+use crate::unit::Unit;
 
 use self::pass::{Inspect, Transform};
 
 #[derive(Debug)]
-pub struct Package {
-    units: SlotMap<UnitId, Unit>,
+pub struct Package<UnitId, NodeId, Node, NodeData = ()>
+where
+    UnitId: slotmap::Key,
+    NodeId: slotmap::Key,
+{
+    units: SlotMap<UnitId, Unit<UnitId, NodeId, Node, NodeData>>,
     root: UnitId,
 }
 
-impl Default for Package {
+impl<UnitId, NodeId, Node> Default for Package<UnitId, NodeId, Node>
+where
+    UnitId: slotmap::Key,
+    NodeId: slotmap::Key,
+{
     fn default() -> Self {
         Self {
             units: SlotMap::with_key(),
@@ -19,16 +27,20 @@ impl Default for Package {
     }
 }
 
-impl Package {
+impl<UnitId, NodeId, Node> Package<UnitId, NodeId, Node>
+where
+    UnitId: slotmap::Key,
+    NodeId: slotmap::Key,
+{
     pub fn new() -> Self {
         Self::default()
     }
 
-    pub fn inspect<P: Inspect<Scope = Package>>(&self, pass: &mut P, input: P::Input) {
+    pub fn inspect<P: Inspect<Scope = Self>>(&self, pass: &mut P, input: P::Input) {
         pass.inspect(self, input);
     }
 
-    pub fn transform<P: Transform<Scope = Package>>(&mut self, pass: &mut P, input: P::Input) {
+    pub fn transform<P: Transform<Scope = Self>>(&mut self, pass: &mut P, input: P::Input) {
         pass.transform(self, input);
     }
 
@@ -36,15 +48,15 @@ impl Package {
         self.units.get(self.root).unwrap().name()
     }
 
-    pub fn unit(&self, id: UnitId) -> Option<&Unit> {
+    pub fn unit(&self, id: UnitId) -> Option<&Unit<UnitId, NodeId, Node>> {
         self.units.get(id)
     }
 
-    pub fn unit_mut(&mut self, id: UnitId) -> Option<&mut Unit> {
+    pub fn unit_mut(&mut self, id: UnitId) -> Option<&mut Unit<UnitId, NodeId, Node>> {
         self.units.get_mut(id)
     }
 
-    pub fn add_unit(&mut self, unit: Unit) -> UnitId {
+    pub fn add_unit(&mut self, unit: Unit<UnitId, NodeId, Node>) -> UnitId {
         self.units.insert(unit)
     }
 
@@ -187,7 +199,7 @@ pub mod pass {
     }
 
     impl<'a> Inspect for PrintNode<'a> {
-        type Scope = Package;
+        type Scope = Package<UnitId, NodeId, ASTNode>;
         type Input = PrintNodeCtx;
 
         fn inspect(&mut self, scope: &Self::Scope, input: Self::Input) {
@@ -195,7 +207,7 @@ pub mod pass {
                 .units
                 .get(input.unit)
                 .unwrap()
-                .get_node(input.node)
+                .node(input.node)
                 .unwrap();
             let indent_str = "  ".repeat(input.indent.checked_sub(1).unwrap_or(0));
 
@@ -502,11 +514,8 @@ pub mod pass {
                                 write!(input.out.borrow_mut(), " -> {}", ret_ty).unwrap();
                             }
                             write!(input.out.borrow_mut(), " ").unwrap();
-                            if let ASTNode::Expr(Expr::Block { .. }) = scope
-                                .unit(input.unit)
-                                .unwrap()
-                                .get_node(input.node)
-                                .unwrap()
+                            if let ASTNode::Expr(Expr::Block { .. }) =
+                                scope.unit(input.unit).unwrap().node(input.node).unwrap()
                             {
                                 self.inspect(scope, input.with().node(*body).nested());
                             } else {
@@ -519,7 +528,7 @@ pub mod pass {
                         write!(input.out.borrow_mut(), " # result").unwrap();
                     } else if input.stmt {
                         let unit = scope.unit(input.unit).unwrap();
-                        let node = unit.get_node(input.node).unwrap();
+                        let node = unit.node(input.node).unwrap();
                         match node {
                             ASTNode::Expr(Expr::Result { .. }) => {}
                             _ => write!(input.out.borrow_mut(), ";").unwrap(),
@@ -670,10 +679,10 @@ pub mod pass {
     }
 
     impl Inspect for PrintUnit {
-        type Scope = Package;
+        type Scope = Package<UnitId, NodeId, ASTNode>;
         type Input = UnitId;
 
-        fn inspect(&mut self, package: &Package, id: UnitId) {
+        fn inspect(&mut self, package: &Self::Scope, id: UnitId) {
             let unit = package.units.get(id).unwrap();
             let buf = Rc::new(RefCell::new(String::new()));
             for member in unit.members().values().copied() {
@@ -688,10 +697,10 @@ pub mod pass {
     }
 
     impl Inspect for PrintPackage {
-        type Scope = Package;
+        type Scope = Package<UnitId, NodeId, ASTNode>;
         type Input = ();
 
-        fn inspect(&mut self, package: &Package, _: ()) {
+        fn inspect(&mut self, package: &Self::Scope, _: ()) {
             let root = package.root;
             let unit = package.units.get(root).unwrap();
             let buf = Rc::new(RefCell::new(String::new()));

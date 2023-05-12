@@ -12,6 +12,6 @@ readme = "../README.md"
 anyhow = "1.0.71"
 ariadne = { git = "https://github.com/zesterer/ariadne" }
 chumsky = { git = "https://github.com/zesterer/chumsky", features = ["label"] }
-crane-lex = { version = "0.1.0", path = "../lex/" }
-log = "0.4.17"
 slotmap = "1.0.6"
+log = "0.4.17"
+crane-lex = { version = "0.1.0", path = "../lex/" }

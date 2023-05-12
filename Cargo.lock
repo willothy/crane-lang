@@ -112,7 +112,12 @@ dependencies = [
 name = "crane-mir"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
+ "ariadne",
+ "chumsky",
  "crane-parse",
+ "log",
+ "slotmap",
 ]
 
 [[package]]

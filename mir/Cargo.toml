@@ -9,4 +9,9 @@ repository = "https://github.com/willothy/crane-lang"
 readme = "../README.md"
 
 [dependencies]
+anyhow = "1.0.71"
+ariadne = { git = "https://github.com/zesterer/ariadne" }
+chumsky = { git = "https://github.com/zesterer/chumsky", features = ["label"] }
+slotmap = "1.0.6"
+log = "0.4.17"
 crane-parse = { version = "0.1.0", path = "../parse/" }

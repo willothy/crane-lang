@@ -27,7 +27,7 @@ use ops::{AssignOp, BinaryOp, UnaryOp};
 use package::Package;
 use path::{ItemPath, PathPart};
 use ty::Signature;
-use unit::{NodeId, Unit, UnitId};
+use unit::{ASTUnit, NodeId, Unit, UnitId};
 
 new_key_type! {
     pub struct TypeId;
@@ -46,12 +46,12 @@ pub type ParserCtx = ();
 
 #[derive(Debug)]
 pub struct ParserState<'src> {
-    pub package: &'src mut Package,
+    pub package: &'src mut Package<UnitId, NodeId, ASTNode>,
     pub unit_stack: Vec<UnitId>,
 }
 
 impl<'src> ParserState<'src> {
-    fn new(package: &'src mut Package) -> ParserState<'src> {
+    fn new(package: &'src mut Package<UnitId, NodeId, ASTNode>) -> ParserState<'src> {
         ParserState {
             package,
             unit_stack: Vec::new(),
@@ -62,7 +62,7 @@ impl<'src> ParserState<'src> {
         *self.unit_stack.last().unwrap()
     }
 
-    fn current_unit_mut(&mut self) -> &mut Unit {
+    fn current_unit_mut(&mut self) -> &mut ASTUnit {
         self.package.unit_mut(self.current_unit_id()).unwrap()
     }
 }
@@ -784,7 +784,7 @@ fn typename<'src>() -> impl Parser<'src, ParserStream<'src>, Signature, ParserEx
 
 pub fn parse<'src>(
     tokens: Vec<Spanned<Token, Span>>,
-    package: &mut Package,
+    package: &mut Package<UnitId, NodeId, ASTNode>,
     name: String,
 ) -> Result<ParseResult<UnitId, ParserError>> {
     let root = Unit::new(name, None);
