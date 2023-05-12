@@ -5,32 +5,32 @@ use crate::unit::Unit;
 use self::pass::{Inspect, Transform};
 
 #[derive(Debug)]
-pub struct Package<UnitId, NodeId, Node, NodeData = ()>
+pub struct Package<U, K, N, D = ()>
 where
-    UnitId: slotmap::Key,
-    NodeId: slotmap::Key,
+    U: slotmap::Key,
+    K: slotmap::Key,
 {
-    units: SlotMap<UnitId, Unit<UnitId, NodeId, Node, NodeData>>,
-    root: UnitId,
+    units: SlotMap<U, Unit<U, K, N, D>>,
+    root: U,
 }
 
-impl<UnitId, NodeId, Node> Default for Package<UnitId, NodeId, Node>
+impl<U, K, N> Default for Package<U, K, N>
 where
-    UnitId: slotmap::Key,
-    NodeId: slotmap::Key,
+    U: slotmap::Key,
+    K: slotmap::Key,
 {
     fn default() -> Self {
         Self {
             units: SlotMap::with_key(),
-            root: UnitId::default(),
+            root: U::default(),
         }
     }
 }
 
-impl<UnitId, NodeId, Node> Package<UnitId, NodeId, Node>
+impl<U, K, N> Package<U, K, N>
 where
-    UnitId: slotmap::Key,
-    NodeId: slotmap::Key,
+    U: slotmap::Key,
+    K: slotmap::Key,
 {
     pub fn new() -> Self {
         Self::default()
@@ -48,27 +48,27 @@ where
         self.units.get(self.root).unwrap().name()
     }
 
-    pub fn unit(&self, id: UnitId) -> Option<&Unit<UnitId, NodeId, Node>> {
+    pub fn unit(&self, id: U) -> Option<&Unit<U, K, N>> {
         self.units.get(id)
     }
 
-    pub fn unit_mut(&mut self, id: UnitId) -> Option<&mut Unit<UnitId, NodeId, Node>> {
+    pub fn unit_mut(&mut self, id: U) -> Option<&mut Unit<U, K, N>> {
         self.units.get_mut(id)
     }
 
-    pub fn add_unit(&mut self, unit: Unit<UnitId, NodeId, Node>) -> UnitId {
+    pub fn add_unit(&mut self, unit: Unit<U, K, N>) -> U {
         self.units.insert(unit)
     }
 
-    pub fn get_root(&self) -> UnitId {
+    pub fn get_root(&self) -> U {
         self.root
     }
 
-    pub fn set_root(&mut self, root: UnitId) {
+    pub fn set_root(&mut self, root: U) {
         self.root = root;
     }
 
-    pub fn get_parent_name(&self, unit_id: UnitId) -> Option<(UnitId, &str)> {
+    pub fn get_parent_name(&self, unit_id: U) -> Option<(U, &str)> {
         let unit = self.units.get(unit_id).unwrap();
         if let Some(parent) = unit.parent() {
             return self.units.get(parent).map(|u| (parent, u.name()));

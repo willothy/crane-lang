@@ -115,6 +115,7 @@ dependencies = [
  "anyhow",
  "ariadne",
  "chumsky",
+ "crane-lex",
  "crane-parse",
  "log",
  "slotmap",
