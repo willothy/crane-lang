@@ -24,7 +24,7 @@ pub mod unit;
 use expr::Expr;
 use item::Item;
 use ops::{AssignOp, BinaryOp, UnaryOp};
-use package::Package;
+use package::{ASTPackage, Package};
 use path::{ItemPath, PathPart};
 use ty::Signature;
 use unit::{ASTUnit, NodeId, Unit, UnitId};
@@ -46,12 +46,12 @@ pub type ParserCtx = ();
 
 #[derive(Debug)]
 pub struct ParserState<'src> {
-    pub package: &'src mut Package<UnitId, NodeId, ASTNode>,
+    pub package: &'src mut ASTPackage,
     pub unit_stack: Vec<UnitId>,
 }
 
 impl<'src> ParserState<'src> {
-    fn new(package: &'src mut Package<UnitId, NodeId, ASTNode>) -> ParserState<'src> {
+    fn new(package: &'src mut ASTPackage) -> ParserState<'src> {
         ParserState {
             package,
             unit_stack: Vec::new(),
@@ -784,10 +784,10 @@ fn typename<'src>() -> impl Parser<'src, ParserStream<'src>, Signature, ParserEx
 
 pub fn parse<'src>(
     tokens: Vec<Spanned<Token, Span>>,
-    package: &mut Package<UnitId, NodeId, ASTNode>,
+    package: &mut ASTPackage,
     name: String,
 ) -> Result<ParseResult<UnitId, ParserError>> {
-    let root = Unit::new(name, None);
+    let root = ASTUnit::new(name, None);
     let mut state = ParserState::new(package);
     let unit_id = state.package.add_unit(root);
     state.unit_stack.push(unit_id);

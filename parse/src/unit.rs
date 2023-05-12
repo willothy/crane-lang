@@ -9,97 +9,75 @@ new_key_type! {
     pub struct NodeId;
 }
 
-#[derive(Debug)]
-pub struct Unit<U, K, N, D = ()>
-where
-    U: slotmap::Key,
-    K: slotmap::Key,
-{
-    parent: Option<U>,
-    name: String,
-    nodes: SlotMap<K, N>,
-    members: HashMap<String, K>,
-    data: D,
+pub trait Unit<U, K, N> {
+    fn name(&self) -> &str;
+    fn parent(&self) -> Option<U>;
+    fn node(&self, id: K) -> Option<&N>;
+    fn node_mut(&mut self, id: K) -> Option<&mut N>;
+    fn new_node(&mut self, node: N) -> K;
+    fn members(&self) -> &HashMap<String, K>;
+    fn members_mut(&mut self) -> &mut HashMap<String, K>;
 }
 
-pub type ASTUnit = Unit<UnitId, NodeId, ASTNode>;
-
-impl<U, K, N, D> Unit<U, K, N, D>
-where
-    U: slotmap::Key,
-    K: slotmap::Key,
-{
-    pub fn new_with_data(name: String, parent: Option<U>, data: D) -> Self {
-        Self {
-            parent,
-            name,
-            nodes: SlotMap::with_key(),
-            members: HashMap::new(),
-            data,
-        }
-    }
-
-    pub fn data(&self) -> &D {
-        &self.data
-    }
-
-    pub fn data_mut(&mut self) -> &mut D {
-        &mut self.data
-    }
-}
-
-impl<U, K, N, D> Unit<U, K, N, D>
-where
-    U: slotmap::Key,
-    K: slotmap::Key,
-    D: Default,
-{
-    pub fn new(name: String, parent: Option<U>) -> Self {
-        Self {
-            parent,
-            name,
-            nodes: SlotMap::with_key(),
-            members: HashMap::new(),
-            data: Default::default(),
-        }
-    }
-}
-
-impl<U, K, N, D> Unit<U, K, N, D>
-where
-    U: slotmap::Key,
-    K: slotmap::Key,
-{
-    pub fn name(&self) -> &str {
+impl Unit<UnitId, NodeId, ASTNode> for ASTUnit {
+    fn name(&self) -> &str {
         &self.name
     }
 
-    pub fn parent(&self) -> Option<U> {
+    fn parent(&self) -> Option<UnitId> {
         self.parent
     }
 
-    pub fn node(&self, id: K) -> Option<&N> {
+    fn node(&self, id: NodeId) -> Option<&ASTNode> {
         self.nodes.get(id)
     }
 
-    pub fn node_mut(&mut self, id: K) -> Option<&mut N> {
+    fn node_mut(&mut self, id: NodeId) -> Option<&mut ASTNode> {
         self.nodes.get_mut(id)
     }
 
-    pub fn new_node(&mut self, node: N) -> K {
+    fn new_node(&mut self, node: ASTNode) -> NodeId {
         self.nodes.insert(node)
     }
 
-    pub fn members(&self) -> &HashMap<String, K> {
+    fn members(&self) -> &HashMap<String, NodeId> {
         &self.members
     }
 
-    pub fn members_mut(&mut self) -> &mut HashMap<String, K> {
+    fn members_mut(&mut self) -> &mut HashMap<String, NodeId> {
         &mut self.members
     }
 }
 
-impl Unit<UnitId, NodeId, ASTNode> {
+#[derive(Debug)]
+pub struct ASTUnit {
+    parent: Option<UnitId>,
+    name: String,
+    nodes: SlotMap<NodeId, ASTNode>,
+    members: HashMap<String, NodeId>,
+}
+
+impl ASTUnit {
+    pub fn new_with_data(name: String, parent: Option<UnitId>) -> Self {
+        Self {
+            parent,
+            name,
+            nodes: SlotMap::with_key(),
+            members: HashMap::new(),
+        }
+    }
+}
+
+impl ASTUnit {
+    pub fn new(name: String, parent: Option<UnitId>) -> Self {
+        Self {
+            parent,
+            name,
+            nodes: SlotMap::with_key(),
+            members: HashMap::new(),
+        }
+    }
+
     pub fn new_item(&mut self, name: String, item: Item) -> NodeId {
         let id = self.nodes.insert(ASTNode::Item(item));
         self.members.insert(name, id);

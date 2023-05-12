@@ -1,36 +1,44 @@
 use slotmap::SlotMap;
 
-use crate::unit::Unit;
+use crate::{
+    unit::{ASTUnit, NodeId, Unit, UnitId},
+    ASTNode,
+};
 
 use self::pass::{Inspect, Transform};
 
 #[derive(Debug)]
-pub struct Package<U, K, N, D = ()>
+pub struct Package<K, U, NK, N>
 where
-    U: slotmap::Key,
     K: slotmap::Key,
+    NK: slotmap::Key,
 {
-    units: SlotMap<U, Unit<U, K, N, D>>,
-    root: U,
+    units: SlotMap<K, U>,
+    root: K,
+    _marker: std::marker::PhantomData<(NK, N)>,
 }
 
-impl<U, K, N> Default for Package<U, K, N>
+impl<K, U, NK, N> Default for Package<K, U, NK, N>
 where
-    U: slotmap::Key,
     K: slotmap::Key,
+    NK: slotmap::Key,
 {
     fn default() -> Self {
         Self {
             units: SlotMap::with_key(),
-            root: U::default(),
+            root: K::default(),
+            _marker: std::marker::PhantomData,
         }
     }
 }
 
-impl<U, K, N> Package<U, K, N>
+pub type ASTPackage = Package<UnitId, ASTUnit, NodeId, ASTNode>;
+
+impl<K, U, NK, N> Package<K, U, NK, N>
 where
-    U: slotmap::Key,
     K: slotmap::Key,
+    NK: slotmap::Key,
+    U: Unit<K, NK, N>,
 {
     pub fn new() -> Self {
         Self::default()
@@ -48,27 +56,27 @@ where
         self.units.get(self.root).unwrap().name()
     }
 
-    pub fn unit(&self, id: U) -> Option<&Unit<U, K, N>> {
+    pub fn unit(&self, id: K) -> Option<&U> {
         self.units.get(id)
     }
 
-    pub fn unit_mut(&mut self, id: U) -> Option<&mut Unit<U, K, N>> {
+    pub fn unit_mut(&mut self, id: K) -> Option<&mut U> {
         self.units.get_mut(id)
     }
 
-    pub fn add_unit(&mut self, unit: Unit<U, K, N>) -> U {
+    pub fn add_unit(&mut self, unit: U) -> K {
         self.units.insert(unit)
     }
 
-    pub fn get_root(&self) -> U {
+    pub fn get_root(&self) -> K {
         self.root
     }
 
-    pub fn set_root(&mut self, root: U) {
+    pub fn set_root(&mut self, root: K) {
         self.root = root;
     }
 
-    pub fn get_parent_name(&self, unit_id: U) -> Option<(U, &str)> {
+    pub fn get_parent_name(&self, unit_id: K) -> Option<(K, &str)> {
         let unit = self.units.get(unit_id).unwrap();
         if let Some(parent) = unit.parent() {
             return self.units.get(parent).map(|u| (parent, u.name()));
@@ -101,11 +109,11 @@ pub mod pass {
     use crate::{
         expr::Expr,
         item::Item,
-        unit::{NodeId, UnitId},
+        unit::{NodeId, Unit, UnitId},
         ASTNode,
     };
 
-    use super::Package;
+    use super::ASTPackage;
 
     pub trait Transform {
         type Scope;
@@ -199,7 +207,7 @@ pub mod pass {
     }
 
     impl<'a> Inspect for PrintNode<'a> {
-        type Scope = Package<UnitId, NodeId, ASTNode>;
+        type Scope = ASTPackage;
         type Input = PrintNodeCtx;
 
         fn inspect(&mut self, scope: &Self::Scope, input: Self::Input) {
@@ -679,7 +687,7 @@ pub mod pass {
     }
 
     impl Inspect for PrintUnit {
-        type Scope = Package<UnitId, NodeId, ASTNode>;
+        type Scope = ASTPackage;
         type Input = UnitId;
 
         fn inspect(&mut self, package: &Self::Scope, id: UnitId) {
@@ -697,7 +705,7 @@ pub mod pass {
     }
 
     impl Inspect for PrintPackage {
-        type Scope = Package<UnitId, NodeId, ASTNode>;
+        type Scope = ASTPackage;
         type Input = ();
 
         fn inspect(&mut self, package: &Self::Scope, _: ()) {

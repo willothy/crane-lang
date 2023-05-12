@@ -1,6 +1,11 @@
 use slotmap::{new_key_type, SlotMap};
 
-use crane_parse::{package::Package, unit::Unit};
+use crane_lex as lex;
+use crane_parse as parse;
+use parse::{
+    package::{pass::Inspect, Package},
+    unit::Unit,
+};
 
 new_key_type! {
     pub struct TypeId;
@@ -72,7 +77,7 @@ pub enum MIRInstruction {
     },
     Literal {
         ty: TypeId,
-        value: crane_lex::Literal,
+        value: lex::Literal,
     },
     StructInit {
         ty: TypeId,
@@ -212,10 +217,88 @@ pub enum MIRInstruction {
     },
 }
 
-pub type TypeStore = SlotMap<TypeId, Type>;
-
 /// The MIRUnit will be a control-flow graph structure instead of a tree
 /// However, thanks to generics and `Unit`'s arena-based architecture, the same `Unit` struct can be reused.
-pub type MIRUnit = Unit<MIRUnitId, MIRNodeId, MIRNode, TypeStore>;
+// pub type MIRUnit = Unit<MIRUnitId, MIRNodeId, MIRNode, TypeStore>;
+pub struct MIRUnit {
+    pub name: String,
+    pub parent: Option<MIRUnitId>,
+    pub nodes: SlotMap<MIRNodeId, MIRNode>,
+}
 
-pub type MIRPackage = Package<MIRUnitId, MIRNodeId, MIRNode, TypeStore>;
+impl MIRUnit {
+    pub fn new(name: String, parent: Option<MIRUnitId>) -> Self {
+        Self {
+            name,
+            parent,
+            nodes: SlotMap::with_key(),
+        }
+    }
+
+    pub fn new_node(&mut self, node: MIRNode) -> MIRNodeId {
+        self.nodes.insert(node)
+    }
+}
+
+impl Unit<MIRUnitId, MIRNodeId, MIRNode> for MIRUnit {
+    fn name(&self) -> &str {
+        todo!()
+    }
+
+    fn parent(&self) -> Option<MIRUnitId> {
+        todo!()
+    }
+
+    fn node(&self, id: MIRNodeId) -> Option<&MIRNode> {
+        todo!()
+    }
+
+    fn node_mut(&mut self, id: MIRNodeId) -> Option<&mut MIRNode> {
+        todo!()
+    }
+
+    fn new_node(&mut self, node: MIRNode) -> MIRNodeId {
+        todo!()
+    }
+
+    fn members(&self) -> &std::collections::HashMap<String, MIRNodeId> {
+        todo!()
+    }
+
+    fn members_mut(&mut self) -> &mut std::collections::HashMap<String, MIRNodeId> {
+        todo!()
+    }
+}
+
+pub type MIRPackage = Package<MIRUnitId, MIRUnit, MIRNodeId, MIRNode>;
+
+pub enum InsertPoint {
+    Before(MIRNodeId),
+    After(MIRNodeId),
+    Start,
+    End,
+}
+
+pub struct InsertInfo {
+    pub unit: MIRUnitId,
+    pub node: MIRNodeId,
+    pub point: InsertPoint,
+}
+
+pub struct MIRBuilder {
+    pub package: MIRPackage,
+    pub insert_point: Option<InsertInfo>,
+}
+
+impl MIRBuilder {
+    pub fn new() -> Self {
+        Self {
+            package: MIRPackage::new(),
+            insert_point: None,
+        }
+    }
+
+    pub fn create_unit(&mut self, name: String, parent: Option<MIRUnitId>) -> MIRUnitId {
+        self.package.add_unit(MIRUnit::new(name, parent))
+    }
+}
