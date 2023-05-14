@@ -14,7 +14,7 @@ use crate::{
     punc, ParserExtra, ParserStream,
 };
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Eq, Hash, Clone)]
 pub enum Signature {
     Function {
         params: Vec<Signature>,
@@ -25,6 +25,32 @@ pub enum Signature {
     Array(Box<Signature>, usize),
     Tuple(Vec<Signature>),
     Name(ItemPath),
+}
+
+impl Signature {
+    pub fn is_function(&self) -> bool {
+        matches!(self, Signature::Function { .. })
+    }
+
+    pub fn is_primitive(&self) -> bool {
+        matches!(self, Signature::Primitive(_))
+    }
+
+    pub fn is_pointer(&self) -> bool {
+        matches!(self, Signature::Pointer(_))
+    }
+
+    pub fn is_array(&self) -> bool {
+        matches!(self, Signature::Array(_, _))
+    }
+
+    pub fn is_tuple(&self) -> bool {
+        matches!(self, Signature::Tuple(_))
+    }
+
+    pub fn is_name(&self) -> bool {
+        matches!(self, Signature::Name(_))
+    }
 }
 
 impl Display for Signature {

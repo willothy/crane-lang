@@ -213,7 +213,7 @@ pub enum Literal {
     Bool(bool),
 }
 
-#[derive(Debug, PartialEq, Clone, Hash)]
+#[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub enum Primitive {
     U8,
     U16,

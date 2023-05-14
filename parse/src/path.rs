@@ -9,7 +9,7 @@ use crane_lex::Token;
 
 use crate::ParserExtra;
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub enum PathPart {
     Root,
     Self_,
@@ -42,7 +42,7 @@ impl Display for PathPart {
     }
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub struct ItemPath {
     pub parts: Vec<PathPart>,
 }

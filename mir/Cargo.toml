@@ -16,3 +16,4 @@ slotmap = "1.0.6"
 log = "0.4.17"
 crane-parse = { version = "0.1.0", path = "../parse/" }
 crane-lex = { version = "0.1.0", path = "../lex" }
+linked-hash-map = "0.5.6"

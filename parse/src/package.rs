@@ -8,20 +8,22 @@ use crate::{
 use self::pass::{Inspect, Transform};
 
 #[derive(Debug)]
-pub struct Package<K, U, NK, N>
+pub struct Package<K, U, NK, N, MK>
 where
     K: slotmap::Key,
     NK: slotmap::Key,
+    MK: slotmap::Key,
 {
     units: SlotMap<K, U>,
     root: K,
-    _marker: std::marker::PhantomData<(NK, N)>,
+    _marker: std::marker::PhantomData<(NK, N, MK)>,
 }
 
-impl<K, U, NK, N> Default for Package<K, U, NK, N>
+impl<K, U, NK, N, MK> Default for Package<K, U, NK, N, MK>
 where
     K: slotmap::Key,
     NK: slotmap::Key,
+    MK: slotmap::Key,
 {
     fn default() -> Self {
         Self {
@@ -32,13 +34,14 @@ where
     }
 }
 
-pub type ASTPackage = Package<UnitId, ASTUnit, NodeId, ASTNode>;
+pub type ASTPackage = Package<UnitId, ASTUnit, NodeId, ASTNode, NodeId>;
 
-impl<K, U, NK, N> Package<K, U, NK, N>
+impl<K, U, NK, MK, N> Package<K, U, NK, N, MK>
 where
     K: slotmap::Key,
     NK: slotmap::Key,
-    U: Unit<K, NK, N>,
+    MK: slotmap::Key,
+    U: Unit<K, NK, MK, N>,
 {
     pub fn new() -> Self {
         Self::default()

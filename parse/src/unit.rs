@@ -9,17 +9,17 @@ new_key_type! {
     pub struct NodeId;
 }
 
-pub trait Unit<U, K, N> {
+pub trait Unit<U, K, M, N> {
     fn name(&self) -> &str;
     fn parent(&self) -> Option<U>;
     fn node(&self, id: K) -> Option<&N>;
     fn node_mut(&mut self, id: K) -> Option<&mut N>;
     fn new_node(&mut self, node: N) -> K;
-    fn members(&self) -> &HashMap<String, K>;
-    fn members_mut(&mut self) -> &mut HashMap<String, K>;
+    fn members(&self) -> &HashMap<String, M>;
+    fn members_mut(&mut self) -> &mut HashMap<String, M>;
 }
 
-impl Unit<UnitId, NodeId, ASTNode> for ASTUnit {
+impl Unit<UnitId, NodeId, NodeId, ASTNode> for ASTUnit {
     fn name(&self) -> &str {
         &self.name
     }

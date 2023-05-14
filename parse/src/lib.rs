@@ -24,10 +24,10 @@ pub mod unit;
 use expr::Expr;
 use item::Item;
 use ops::{AssignOp, BinaryOp, UnaryOp};
-use package::{ASTPackage, Package};
+use package::ASTPackage;
 use path::{ItemPath, PathPart};
 use ty::Signature;
-use unit::{ASTUnit, NodeId, Unit, UnitId};
+use unit::{ASTUnit, NodeId, UnitId};
 
 new_key_type! {
     pub struct TypeId;
@@ -581,7 +581,7 @@ fn block<'src>(
     expr: impl Parser<'src, ParserStream<'src>, NodeId, ParserExtra<'src>> + Clone,
 ) -> impl Parser<'src, ParserStream<'src>, NodeId, ParserExtra<'src>> {
     stmt(expr)
-        // .recover_with(Fallback::via_semicolon())
+        .recover_with(Fallback::via_semicolon())
         .separated_by(punc!(Semicolon))
         .at_least(0)
         .collect::<Vec<NodeId>>()
