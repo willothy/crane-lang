@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use slotmap::{new_key_type, SlotMap};
 
 use crane_lex as lex;
@@ -224,6 +226,7 @@ pub struct MIRUnit {
     pub name: String,
     pub parent: Option<MIRUnitId>,
     pub nodes: SlotMap<MIRNodeId, MIRNode>,
+    pub members: HashMap<String, MIRNodeId>,
 }
 
 impl MIRUnit {
@@ -232,41 +235,38 @@ impl MIRUnit {
             name,
             parent,
             nodes: SlotMap::with_key(),
+            members: HashMap::new(),
         }
-    }
-
-    pub fn new_node(&mut self, node: MIRNode) -> MIRNodeId {
-        self.nodes.insert(node)
     }
 }
 
 impl Unit<MIRUnitId, MIRNodeId, MIRNode> for MIRUnit {
     fn name(&self) -> &str {
-        todo!()
+        &self.name
     }
 
     fn parent(&self) -> Option<MIRUnitId> {
-        todo!()
+        self.parent
     }
 
     fn node(&self, id: MIRNodeId) -> Option<&MIRNode> {
-        todo!()
+        self.nodes.get(id)
     }
 
     fn node_mut(&mut self, id: MIRNodeId) -> Option<&mut MIRNode> {
-        todo!()
+        self.nodes.get_mut(id)
     }
 
     fn new_node(&mut self, node: MIRNode) -> MIRNodeId {
-        todo!()
+        self.nodes.insert(node)
     }
 
     fn members(&self) -> &std::collections::HashMap<String, MIRNodeId> {
-        todo!()
+        &self.members
     }
 
     fn members_mut(&mut self) -> &mut std::collections::HashMap<String, MIRNodeId> {
-        todo!()
+        &mut self.members
     }
 }
 

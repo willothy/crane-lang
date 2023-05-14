@@ -216,7 +216,7 @@ pub mod pass {
                 .get(input.unit)
                 .unwrap()
                 .node(input.node)
-                .unwrap();
+                .unwrap_or(&ASTNode::Error);
             let indent_str = "  ".repeat(input.indent.checked_sub(1).unwrap_or(0));
 
             match node {
@@ -674,6 +674,16 @@ pub mod pass {
                         }
                     };
                     writeln!(input.out.borrow_mut(), "\n").unwrap();
+                }
+                ASTNode::Error => {
+                    let indent = if input.newline || input.result {
+                        "  ".repeat(input.indent)
+                    } else {
+                        "".to_string()
+                    };
+                    const RED: &str = "\x1b[0;31m";
+                    const RESET: &str = "\x1b[0m";
+                    write!(input.out.borrow_mut(), "{}{RED}Error{RESET}", indent).unwrap();
                 }
                 #[allow(unreachable_patterns)]
                 _ => writeln!(

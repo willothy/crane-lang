@@ -65,7 +65,7 @@ fn main() -> anyhow::Result<()> {
                 let end = error.span().end();
 
                 let start_token = tokens.get(start).unwrap();
-                let end_token = tokens.get(end).unwrap();
+                // let end_token = tokens.get(end).unwrap();
                 let source = cache.fetch(Path::new(&filename)).unwrap();
 
                 let offset = source.get_offset_line(start_token.span.start()).unwrap();
@@ -81,8 +81,8 @@ fn main() -> anyhow::Result<()> {
                 } else {
                     0
                 };
-                let start = offset.0.span().start + offset.1 + offset.2 + (extra * 2);
-                let end = end_token.span.end() + offset.1;
+                let start = start_token.span.start(); //offset.0.span().start + offset.1 + offset.2 + (extra * 2);
+                let end = start_token.span.end(); //end_token.span.end() + offset.1;
 
                 let expected = Label::new((&filename, start..end))
                     .with_message(format!(

@@ -307,6 +307,7 @@ fn list<'src>(
         .map_with_state(|exprs, _span, state: &mut ParserState| {
             state.current_unit_mut().new_expr(Expr::List { exprs })
         })
+    // .recover_with(Fallback::via_brackets())
 }
 
 fn tuple<'src>(
@@ -320,6 +321,7 @@ fn tuple<'src>(
         .map_with_state(|exprs, _span, state: &mut ParserState| {
             state.current_unit_mut().new_expr(Expr::Tuple { exprs })
         })
+    // .recover_with(Fallback::via_parens())
 }
 
 fn closure<'src>(
@@ -331,7 +333,7 @@ fn closure<'src>(
         .then(
             punc!(FatArrow)
                 .ignore_then(expr.clone())
-                .or(block(expr.clone())),
+                .or(block(expr.clone()).recover_with(Fallback::via_braces())),
         )
         .map_with_state(
             |((params, ret_ty), body): ((Vec<_>, Option<_>), NodeId),
@@ -344,7 +346,6 @@ fn closure<'src>(
                 })
             },
         )
-        .recover_with(Fallback::via_braces())
 }
 
 fn scope_resolution<'src>() -> impl Parser<'src, ParserStream<'src>, NodeId, ParserExtra<'src>> {
@@ -412,7 +413,8 @@ fn expr<'src>() -> impl Parser<'src, ParserStream<'src>, NodeId, ParserExtra<'sr
             closure(expr.clone()),
             tuple(expr.clone()),
             expr.clone()
-                .delimited_by(punc!(OpenParen), punc!(CloseParen)),
+                .delimited_by(punc!(OpenParen), punc!(CloseParen))
+                .recover_with(Fallback::via_parens()),
         ))
         // Attempt to recover anything that looks like a parenthesised expression but contains errors
         .recover_with(Fallback::via_parens())
@@ -420,6 +422,7 @@ fn expr<'src>() -> impl Parser<'src, ParserStream<'src>, NodeId, ParserExtra<'sr
         .recover_with(Fallback::via_brackets())
         // Attempt to recover anything that looks like a block but contains errors
         .recover_with(Fallback::via_braces())
+        // .recover_with(Fallback::via_semicolon())
         .boxed();
 
         let items = expr
@@ -440,7 +443,8 @@ fn expr<'src>() -> impl Parser<'src, ParserStream<'src>, NodeId, ParserExtra<'sr
 
         let index = expr
             .clone()
-            .delimited_by(punc!(OpenBracket), punc!(CloseBracket));
+            .delimited_by(punc!(OpenBracket), punc!(CloseBracket))
+            .recover_with(Fallback::via_brackets());
 
         let index_access = call
             .clone()
@@ -571,14 +575,13 @@ fn stmt<'src>(
         r#break(expr.clone()),
         expr.clone(),
     ))
-    .recover_with(Fallback::via_braces())
 }
 
 fn block<'src>(
     expr: impl Parser<'src, ParserStream<'src>, NodeId, ParserExtra<'src>> + Clone,
 ) -> impl Parser<'src, ParserStream<'src>, NodeId, ParserExtra<'src>> {
     stmt(expr)
-        .recover_with(Fallback::via_braces())
+        // .recover_with(Fallback::via_semicolon())
         .separated_by(punc!(Semicolon))
         .at_least(0)
         .collect::<Vec<NodeId>>()
@@ -593,6 +596,7 @@ fn block<'src>(
                 state.current_unit_mut().new_expr(Expr::Block { exprs })
             },
         )
+    // .recover_with(Fallback::via_braces())
 }
 
 fn vis<'src>() -> impl Parser<'src, ParserStream<'src>, Visibility, ParserExtra<'src>> {

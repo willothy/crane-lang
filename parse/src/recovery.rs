@@ -1,6 +1,6 @@
 use chumsky::{
     primitive::any,
-    recovery::{nested_delimiters, via_parser, Strategy},
+    recovery::{nested_delimiters, skip_until, via_parser, Strategy},
     Parser,
 };
 
@@ -50,13 +50,13 @@ impl Fallback {
 
     pub fn via_semicolon<'src>(// p: impl Parser<'src, ParserStream<'src>, NodeId, crate::ParserExtra<'src>>,
     ) -> impl Strategy<'src, ParserStream<'src>, NodeId, crate::ParserExtra<'src>> {
-        // skip_until(any().ignored(), punc!(Semicolon).ignored(), || {
-        //     NodeId::default()
-        // })
         via_parser(
-            any().then_ignore(punc!(Semicolon).rewind()).map_with_state(
-                |_, _, state: &mut ParserState| state.current_unit_mut().new_error(),
-            ),
+            any()
+                .repeated()
+                .then_ignore(punc!(Semicolon))
+                .map_with_state(|_, _, state: &mut ParserState| {
+                    state.current_unit_mut().new_error()
+                }),
         )
     }
 

@@ -1,3 +1,7 @@
 pub fn main() {
-	6 ++ 5 
+	if 5 == 5 {
+		std::io.print("test")
+	};
+
+	6 + 5 
 }
