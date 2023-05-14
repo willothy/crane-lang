@@ -1,3 +1,6 @@
+use std::{cell::RefCell, rc::Rc};
+
+use crane_lex::{Literal, Primitive};
 use crane_parse::unit::Unit;
 use linked_hash_map::LinkedHashMap;
 use slotmap::Key;
@@ -26,25 +29,22 @@ pub struct InsertInfo {
 }
 pub struct MIRBuilder {
     pub package: MIRPackage,
+    pub ctx: Rc<RefCell<MIRContext>>,
     pub insert_point: InsertInfo,
 }
 
 impl MIRBuilder {
-    pub fn new() -> Self {
+    pub fn new(ctx: Rc<RefCell<MIRContext>>) -> Self {
         Self {
             package: MIRPackage::new(),
             insert_point: InsertInfo {
                 ..Default::default()
             },
+            ctx,
         }
     }
 
-    pub fn create_unit(
-        &mut self,
-        _ctx: &mut MIRContext,
-        name: String,
-        parent: Option<MIRUnitId>,
-    ) -> MIRUnitId {
+    pub fn create_unit(&mut self, name: String, parent: Option<MIRUnitId>) -> MIRUnitId {
         let unit = self.package.add_unit(MIRUnit::new(name, parent));
         if parent.is_none() {
             self.package.set_root(unit);
@@ -60,15 +60,10 @@ impl MIRBuilder {
         self.package.unit_mut(id)
     }
 
-    pub fn get_or_insert_function(
-        &mut self,
-        ctx: &mut MIRContext,
-        name: String,
-        ty: Type,
-    ) -> MIRItemId {
+    pub fn get_or_insert_function(&mut self, name: String, ty: Type) -> MIRItemId {
         let unit = self.package.unit_mut(self.insert_point.unit).unwrap();
 
-        let fn_ty = ctx.types.get_or_intern(ty);
+        let fn_ty = self.ctx.borrow_mut().types.get_or_intern(ty);
 
         let item = MIRItem::Function {
             name: name.clone(),
@@ -109,6 +104,9 @@ impl MIRBuilder {
         let insert_point = &self.insert_point;
         let unit = self.package.unit_mut(insert_point.unit).unwrap();
         let func = unit.items.get_mut(func).unwrap();
+        if !func.is_function() {
+            panic!("Item {func:?} is not a function");
+        }
         let block = unit.blocks.insert(MIRBlock {
             name: name.clone(),
             body: vec![],
@@ -121,7 +119,7 @@ impl MIRBuilder {
         block
     }
 
-    pub fn create_instruction(&mut self, instruction: MIRInstruction) -> MIRNodeId {
+    fn create_instruction(&mut self, instruction: MIRInstruction) -> MIRNodeId {
         let insert_point = &self.insert_point;
         let unit = self.package.unit_mut(insert_point.unit).unwrap();
         let id = unit.new_node(MIRNode::Instruction { inst: instruction });
@@ -149,6 +147,124 @@ impl MIRBuilder {
             block.termination = Some(node);
         }
         node
+    }
+
+    pub fn build_u8(&mut self, value: u8) -> MIRNodeId {
+        let ty = self
+            .ctx
+            .borrow_mut()
+            .intern_type(Type::Primitive(Primitive::U8));
+        self.create_value(MIRValue::Literal {
+            ty,
+            value: Literal::Int(value as isize),
+        })
+    }
+
+    pub fn build_u16(&mut self, value: u16) -> MIRNodeId {
+        let ty = self
+            .ctx
+            .borrow_mut()
+            .intern_type(Type::Primitive(Primitive::U16));
+        self.create_value(MIRValue::Literal {
+            ty,
+            value: Literal::Int(value as isize),
+        })
+    }
+
+    pub fn build_u32(&mut self, value: u32) -> MIRNodeId {
+        let ty = self
+            .ctx
+            .borrow_mut()
+            .intern_type(Type::Primitive(Primitive::U32));
+        self.create_value(MIRValue::Literal {
+            ty,
+            value: Literal::Int(value as isize),
+        })
+    }
+
+    pub fn build_u64(&mut self, value: u64) -> MIRNodeId {
+        let ty = self
+            .ctx
+            .borrow_mut()
+            .intern_type(Type::Primitive(Primitive::U64));
+        self.create_value(MIRValue::Literal {
+            ty,
+            value: Literal::Int(value as isize),
+        })
+    }
+
+    pub fn build_i8(&mut self, value: i8) -> MIRNodeId {
+        let ty = self
+            .ctx
+            .borrow_mut()
+            .intern_type(Type::Primitive(Primitive::I8));
+        self.create_value(MIRValue::Literal {
+            ty,
+            value: Literal::Int(value as isize),
+        })
+    }
+
+    pub fn build_i16(&mut self, value: i16) -> MIRNodeId {
+        let ty = self
+            .ctx
+            .borrow_mut()
+            .intern_type(Type::Primitive(Primitive::I16));
+        self.create_value(MIRValue::Literal {
+            ty,
+            value: Literal::Int(value as isize),
+        })
+    }
+
+    pub fn build_i32(&mut self, value: i32) -> MIRNodeId {
+        let ty = self
+            .ctx
+            .borrow_mut()
+            .intern_type(Type::Primitive(Primitive::I32));
+        self.create_value(MIRValue::Literal {
+            ty,
+            value: Literal::Int(value as isize),
+        })
+    }
+
+    pub fn build_i64(&mut self, value: i64) -> MIRNodeId {
+        let ty = self
+            .ctx
+            .borrow_mut()
+            .intern_type(Type::Primitive(Primitive::I64));
+        self.create_value(MIRValue::Literal {
+            ty,
+            value: Literal::Int(value as isize),
+        })
+    }
+
+    pub fn build_f32(&mut self, ctx: &mut MIRContext, value: f32) -> MIRNodeId {
+        let ty = ctx.intern_type(Type::Primitive(Primitive::F32));
+        self.create_value(MIRValue::Literal {
+            ty,
+            value: Literal::Float(value as f64),
+        })
+    }
+
+    pub fn build_f64(&mut self, value: f64) -> MIRNodeId {
+        let ty = self
+            .ctx
+            .borrow_mut()
+            .intern_type(Type::Primitive(Primitive::F64));
+        self.create_value(MIRValue::Literal {
+            ty,
+            value: Literal::Float(value),
+        })
+    }
+
+    pub fn build_bool(&mut self, value: bool) -> MIRNodeId {
+        let ty = self
+            .ctx
+            .borrow_mut()
+            .intern_type(Type::Primitive(Primitive::Bool));
+        self.create_value(MIRValue::Literal {
+            ty,
+            value: Literal::Bool(value),
+        })
     }
 
     pub fn build_add(&mut self, lhs: MIRNodeId, rhs: MIRNodeId) -> MIRNodeId {
@@ -264,7 +380,7 @@ impl MIRBuilder {
         self.create_termination(MIRTermination::JumpIf { cond, then })
     }
 
-    pub fn print_value(&self, ctx: &MIRContext, node_id: MIRNodeId) {
+    pub fn print_value(&self, node_id: MIRNodeId) {
         let unit = self.package.unit(self.insert_point.unit).unwrap();
         let node = unit.nodes.get(node_id).unwrap();
         match node {
@@ -275,174 +391,182 @@ impl MIRBuilder {
                 eprint!("%{:?}", node_id.data());
             }
             MIRNode::Value { value } => {
-                value.print(ctx, &self.package, self.insert_point.unit);
+                value.print(self.ctx.clone(), &self.package, self.insert_point.unit);
                 // eprint!(" {}", value);
             }
         }
     }
 
-    pub fn print_node(&self, ctx: &MIRContext, node: MIRNodeId) {
+    pub fn print_node(&self, node: MIRNodeId) {
         let unit = self.package.unit(self.insert_point.unit).unwrap();
         let node = unit.nodes.get(node).unwrap();
         match node {
             MIRNode::Instruction { inst } => match inst {
                 MIRInstruction::Cast { value, ty } => {
                     eprint!("cast ");
-                    self.print_value(ctx, *value);
+                    self.print_value(*value);
                     eprint!(" to ");
-                    ctx.get_type(*ty).unwrap().print(ctx);
+                    self.ctx
+                        .borrow()
+                        .get_type(*ty)
+                        .unwrap()
+                        .print(self.ctx.clone());
                     eprintln!()
                 }
                 MIRInstruction::Add { lhs, rhs } => {
                     eprint!("add ");
-                    self.print_value(ctx, *lhs);
+                    self.print_value(*lhs);
                     eprint!(" ");
-                    self.print_value(ctx, *rhs);
+                    self.print_value(*rhs);
                     eprintln!()
                 }
                 MIRInstruction::Sub { lhs, rhs } => {
                     eprint!("sub ");
-                    self.print_value(ctx, *lhs);
+                    self.print_value(*lhs);
                     eprint!(" ");
-                    self.print_value(ctx, *rhs);
+                    self.print_value(*rhs);
                     eprintln!()
                 }
                 MIRInstruction::Mul { lhs, rhs } => {
                     eprint!("mul ");
-                    self.print_value(ctx, *lhs);
+                    self.print_value(*lhs);
                     eprint!(" ");
-                    self.print_value(ctx, *rhs);
+                    self.print_value(*rhs);
                     eprintln!()
                 }
                 MIRInstruction::Div { lhs, rhs } => {
                     eprint!("div ");
-                    self.print_value(ctx, *lhs);
+                    self.print_value(*lhs);
                     eprint!(" ");
-                    self.print_value(ctx, *rhs);
+                    self.print_value(*rhs);
                     eprintln!()
                 }
                 MIRInstruction::Rem { lhs, rhs } => {
                     eprint!("mod ");
-                    self.print_value(ctx, *lhs);
+                    self.print_value(*lhs);
                     eprint!(" ");
-                    self.print_value(ctx, *rhs);
+                    self.print_value(*rhs);
                     eprintln!()
                 }
                 MIRInstruction::Neg { value } => {
                     eprint!("neg ");
-                    self.print_node(ctx, *value);
+                    self.print_node(*value);
                     eprintln!()
                 }
                 MIRInstruction::Not { value } => {
                     eprint!("not ");
-                    self.print_node(ctx, *value);
+                    self.print_node(*value);
                     eprintln!()
                 }
                 MIRInstruction::BitAnd { lhs, rhs } => {
                     eprint!("band ");
-                    self.print_value(ctx, *lhs);
+                    self.print_value(*lhs);
                     eprint!(" ");
-                    self.print_value(ctx, *rhs);
+                    self.print_value(*rhs);
                     eprintln!()
                 }
                 MIRInstruction::BitOr { lhs, rhs } => {
                     eprint!("bor ");
-                    self.print_value(ctx, *lhs);
+                    self.print_value(*lhs);
                     eprint!(" ");
-                    self.print_value(ctx, *rhs);
+                    self.print_value(*rhs);
                     eprintln!()
                 }
                 MIRInstruction::BitXor { lhs, rhs } => {
                     eprint!("xor ");
-                    self.print_value(ctx, *lhs);
+                    self.print_value(*lhs);
                     eprint!(" ");
-                    self.print_value(ctx, *rhs);
+                    self.print_value(*rhs);
                     eprintln!()
                 }
                 MIRInstruction::BitNot { value } => {
                     eprint!("bnot ");
-                    self.print_node(ctx, *value);
+                    self.print_node(*value);
                     eprintln!()
                 }
                 MIRInstruction::Shl { lhs, rhs } => {
                     eprint!("shl ");
-                    self.print_value(ctx, *lhs);
+                    self.print_value(*lhs);
                     eprint!(" ");
-                    self.print_value(ctx, *rhs);
+                    self.print_value(*rhs);
                     eprintln!()
                 }
                 MIRInstruction::Shr { lhs, rhs } => {
                     eprint!("shr ");
-                    self.print_value(ctx, *lhs);
+                    self.print_value(*lhs);
                     eprint!(" ");
-                    self.print_value(ctx, *rhs);
+                    self.print_value(*rhs);
                     eprintln!()
                 }
                 MIRInstruction::Eq { lhs, rhs } => {
                     eprint!("eq ");
-                    self.print_value(ctx, *lhs);
+                    self.print_value(*lhs);
                     eprint!(" ");
-                    self.print_value(ctx, *rhs);
+                    self.print_value(*rhs);
                     eprintln!()
                 }
                 MIRInstruction::Neq { lhs, rhs } => {
                     eprint!("neq ");
-                    self.print_value(ctx, *lhs);
+                    self.print_value(*lhs);
                     eprint!(" ");
-                    self.print_value(ctx, *rhs);
+                    self.print_value(*rhs);
                     eprintln!()
                 }
                 MIRInstruction::Lt { lhs, rhs } => {
                     eprint!("lt ");
-                    self.print_value(ctx, *lhs);
+                    self.print_value(*lhs);
                     eprint!(" ");
-                    self.print_value(ctx, *rhs);
+                    self.print_value(*rhs);
                     eprintln!()
                 }
                 MIRInstruction::Leq { lhs, rhs } => {
                     eprint!("leq ");
-                    self.print_value(ctx, *lhs);
+                    self.print_value(*lhs);
                     eprint!(" ");
-                    self.print_value(ctx, *rhs);
+                    self.print_value(*rhs);
                     eprintln!()
                 }
                 MIRInstruction::Gt { lhs, rhs } => {
                     eprint!("gt ");
-                    self.print_value(ctx, *lhs);
+                    self.print_value(*lhs);
                     eprint!(" ");
-                    self.print_value(ctx, *rhs);
+                    self.print_value(*rhs);
                     eprintln!()
                 }
                 MIRInstruction::Geq { lhs, rhs } => {
                     eprint!("geq ");
-                    self.print_value(ctx, *lhs);
+                    self.print_value(*lhs);
                     eprint!(" ");
-                    self.print_value(ctx, *rhs);
+                    self.print_value(*rhs);
                     eprintln!()
                 }
                 MIRInstruction::Alloc { ty } => {
                     eprint!("alloc ");
-                    ctx.get_type(*ty).unwrap().print(ctx);
+                    self.ctx
+                        .borrow()
+                        .get_type(*ty)
+                        .unwrap()
+                        .print(self.ctx.clone());
                     eprintln!()
                 }
                 MIRInstruction::Load { ptr } => {
                     eprint!("load ");
-                    self.print_value(ctx, *ptr);
+                    self.print_value(*ptr);
                     eprintln!()
                 }
                 MIRInstruction::Store { ptr, value } => {
                     eprint!("store ");
-                    self.print_value(ctx, *ptr);
+                    self.print_value(*ptr);
                     eprint!(" ");
-                    self.print_value(ctx, *value);
+                    self.print_value(*value);
                     eprintln!()
                 }
                 MIRInstruction::Call { callee, args } => {
                     eprint!("call ");
-                    self.print_value(ctx, *callee);
+                    self.print_value(*callee);
                     eprint!(" ");
                     for arg in args {
-                        self.print_value(ctx, *arg);
+                        self.print_value(*arg);
                         eprint!(" ");
                     }
                     eprintln!()
@@ -455,13 +579,13 @@ impl MIRBuilder {
                 MIRTermination::Return { value } => {
                     eprint!("  return ");
                     if let Some(value) = value {
-                        self.print_value(ctx, *value);
+                        self.print_value(*value);
                     }
                     eprintln!()
                 }
                 MIRTermination::Branch { cond, then, r#else } => {
                     eprint!("  branch ");
-                    self.print_value(ctx, *cond);
+                    self.print_value(*cond);
                     eprint!(
                         " {} ",
                         self.package
@@ -492,28 +616,29 @@ impl MIRBuilder {
         }
     }
 
-    pub fn print_block(&self, ctx: &MIRContext, block: MIRBlockId) {
+    pub fn print_block(&self, block: MIRBlockId) {
         let insert_point = &self.insert_point;
         let unit = self.package.unit(insert_point.unit).unwrap();
         let block = unit.blocks.get(block).unwrap();
 
         for node in &block.body {
             eprint!("  %{:?} = ", node.data());
-            self.print_node(ctx, *node);
+            self.print_node(*node);
         }
         if let Some(termination) = &block.termination {
-            self.print_node(ctx, *termination)
+            self.print_node(*termination)
         }
     }
 
-    pub fn print_function(&self, ctx: &MIRContext, func: MIRItemId) {
+    pub fn print_function(&self, func: MIRItemId) {
         let insert_point = &self.insert_point;
         let unit = self.package.unit(insert_point.unit).unwrap();
         let func = unit.items.get(func).unwrap();
 
         if let MIRItem::Function { name, body, ty } = func {
             eprint!("fn {}", name);
-            let ty = ctx.types.get(*ty).unwrap();
+            let _ctx = self.ctx.borrow();
+            let ty = _ctx.types.get(*ty).unwrap();
             match ty {
                 Type::Function(f) => {
                     eprint!("(");
@@ -521,12 +646,20 @@ impl MIRBuilder {
                         if i != 0 {
                             eprint!(", ");
                         }
-                        ctx.get_type(*arg).unwrap().print(ctx);
+                        self.ctx
+                            .borrow()
+                            .get_type(*arg)
+                            .unwrap()
+                            .print(self.ctx.clone());
                     }
                     eprint!(")");
                     if let Some(ret) = f.ret {
                         eprint!(" -> ");
-                        ctx.get_type(ret).unwrap().print(ctx);
+                        self.ctx
+                            .borrow()
+                            .get_type(ret)
+                            .unwrap()
+                            .print(self.ctx.clone());
                     }
                 }
                 _ => panic!(),
@@ -534,7 +667,7 @@ impl MIRBuilder {
             eprintln!(" {{");
             for (name, block) in body {
                 eprintln!("{}:", name);
-                self.print_block(ctx, *block);
+                self.print_block(*block);
             }
             eprintln!("}}");
         }
@@ -543,37 +676,36 @@ impl MIRBuilder {
 
 #[cfg(test)]
 pub mod tests {
-    use crane_lex::{Literal, Primitive};
+    use std::rc::Rc;
+
+    use crane_lex::Primitive;
 
     use super::*;
-    use crate::{instruction::MIRValue, ty::FunctionType, MIRContext};
+    use crate::{ty::FunctionType, MIRContext};
 
     #[test]
     fn basic() {
-        let mut ctx = MIRContext::new();
-        let mut builder = MIRBuilder::new();
-        let unit = builder.create_unit(&mut ctx, "test".to_string(), None);
+        let ctx = Rc::new(RefCell::new(MIRContext::new()));
+        let mut builder = MIRBuilder::new(ctx.clone());
+        let unit = builder.create_unit("test".to_string(), None);
         // make sure to set the insert unit!
         builder.set_insert_point(unit, MIRBlockId::default(), InsertPoint::End);
+        let u32_ty = ctx
+            .borrow_mut()
+            .intern_type(Type::Primitive(Primitive::U32));
         let func = builder.get_or_insert_function(
-            &mut ctx,
             "test_func".to_string(),
             Type::Function(FunctionType {
                 params: vec![],
-                ret: None,
+                ret: Some(u32_ty),
             }),
         );
         let entry = builder.create_block(func, "entry".to_string());
         builder.set_insert_block(entry);
 
-        let lhs = builder.create_value(MIRValue::Literal {
-            ty: ctx.types.get_or_intern(Type::Primitive(Primitive::U32)),
-            value: Literal::Int(5),
-        });
-        let rhs = builder.create_value(MIRValue::Literal {
-            ty: ctx.types.get_or_intern(Type::Primitive(Primitive::U32)),
-            value: Literal::Int(50),
-        });
+        let lhs = builder.build_u32(5);
+        let rhs = builder.build_u32(50);
+        // let rhs = builder.build_u
         let res = builder.build_add(lhs, rhs);
         let retval = builder.build_add(res, rhs);
 
@@ -587,14 +719,11 @@ pub mod tests {
         builder.build_return(Some(retval));
 
         builder.set_insert_block(b3);
-        let rhs = builder.create_value(MIRValue::Literal {
-            ty: ctx.intern_type(Type::Primitive(Primitive::U32)),
-            value: Literal::Int(10),
-        });
+        let rhs = builder.build_u32(10);
         let new_ret = builder.build_shl(retval, rhs);
         builder.build_return(Some(new_ret));
 
-        builder.print_function(&ctx, func);
+        builder.print_function(func);
         if std::env::var("FORCE_FAIL").is_ok() {
             assert!(false)
         }

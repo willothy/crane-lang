@@ -29,10 +29,6 @@ use path::{ItemPath, PathPart};
 use ty::Signature;
 use unit::{ASTUnit, NodeId, UnitId};
 
-new_key_type! {
-    pub struct TypeId;
-}
-
 #[derive(Debug, PartialEq)]
 pub enum ASTNode {
     Item(Item),

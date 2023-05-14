@@ -1,4 +1,4 @@
-use std::fmt::Display;
+use std::{cell::RefCell, fmt::Display, rc::Rc};
 
 use crate::{MIRBlockId, MIRContext, MIRNodeId, MIRPackage, MIRUnitId, TypeId};
 use crane_lex as lex;
@@ -41,21 +41,24 @@ pub enum MIRValue {
 }
 
 impl MIRValue {
-    pub fn print(&self, ctx: &MIRContext, pkg: &MIRPackage, unit: MIRUnitId) {
+    pub fn print(&self, ctx: Rc<RefCell<MIRContext>>, pkg: &MIRPackage, unit: MIRUnitId) {
         match self {
             MIRValue::Result { ty, value } => {
-                let ty = ctx.get_type(*ty).unwrap();
-                ty.print(ctx);
+                let _ctx = ctx.borrow();
+                let ty = _ctx.get_type(*ty).unwrap();
+                ty.print(ctx.clone());
                 eprint!("%{:?}", value.data());
             }
             MIRValue::Literal { ty, value } => {
-                let ty = ctx.get_type(*ty).unwrap();
-                ty.print(ctx);
+                let _ctx = ctx.borrow();
+                let ty = _ctx.get_type(*ty).unwrap();
+                ty.print(ctx.clone());
                 eprint!(" {}", value);
             }
             MIRValue::StructInit { ty, fields } => {
-                let ty = ctx.get_type(*ty).unwrap();
-                ty.print(ctx);
+                let _ctx = ctx.borrow();
+                let ty = _ctx.get_type(*ty).unwrap();
+                ty.print(ctx.clone());
 
                 eprintln!(" {{");
                 for (i, (name, value)) in fields.iter().enumerate() {
@@ -65,15 +68,16 @@ impl MIRValue {
                     eprint!("{}: ", name);
                     match pkg.unit(unit).unwrap().node(*value).unwrap() {
                         MIRNode::Value { value } => {
-                            value.print(ctx, pkg, unit);
+                            value.print(ctx.clone(), pkg, unit);
                         }
                         _ => panic!(),
                     }
                 }
             }
             MIRValue::ArrayInit { ty, elements } => {
-                let ty = ctx.get_type(*ty).unwrap();
-                ty.print(ctx);
+                let _ctx = ctx.borrow();
+                let ty = _ctx.get_type(*ty).unwrap();
+                ty.print(ctx.clone());
 
                 eprintln!(" [");
                 for (i, value) in elements.iter().enumerate() {
@@ -82,7 +86,7 @@ impl MIRValue {
                     }
                     match pkg.unit(unit).unwrap().node(*value).unwrap() {
                         MIRNode::Value { value } => {
-                            value.print(ctx, pkg, unit);
+                            value.print(ctx.clone(), pkg, unit);
                         }
                         _ => panic!(),
                     }
@@ -90,8 +94,9 @@ impl MIRValue {
                 eprintln!("]");
             }
             MIRValue::TupleInit { ty, elements } => {
-                let ty = ctx.get_type(*ty).unwrap();
-                ty.print(ctx);
+                let _ctx = ctx.borrow();
+                let ty = _ctx.get_type(*ty).unwrap();
+                ty.print(ctx.clone());
 
                 eprintln!(" (");
                 for (i, value) in elements.iter().enumerate() {
@@ -100,7 +105,7 @@ impl MIRValue {
                     }
                     match pkg.unit(unit).unwrap().node(*value).unwrap() {
                         MIRNode::Value { value } => {
-                            value.print(ctx, pkg, unit);
+                            value.print(ctx.clone(), pkg, unit);
                         }
                         _ => panic!(),
                     }

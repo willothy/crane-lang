@@ -40,6 +40,16 @@ pub enum MIRItem {
     // Static { ty: TypeId, value: MIRNodeId },
 }
 
+impl MIRItem {
+    pub fn is_function(&self) -> bool {
+        matches!(self, MIRItem::Function { .. })
+    }
+
+    pub fn is_struct(&self) -> bool {
+        matches!(self, MIRItem::Struct { .. })
+    }
+}
+
 #[derive(Debug)]
 pub struct MIRBlock {
     body: Vec<MIRNodeId>,

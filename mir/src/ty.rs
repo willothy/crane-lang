@@ -1,3 +1,5 @@
+use std::{cell::RefCell, rc::Rc};
+
 use crane_lex::Primitive;
 
 use crate::{MIRContext, TypeId};
@@ -25,7 +27,7 @@ pub enum Type {
 }
 
 impl Type {
-    pub fn print(&self, ctx: &MIRContext) {
+    pub fn print(&self, ctx: Rc<RefCell<MIRContext>>) {
         match self {
             Type::Unit => eprint!("()"),
             Type::Primitive(p) => eprint!("{}", p),
@@ -35,11 +37,11 @@ impl Type {
                     if i != 0 {
                         eprint!(", ");
                     }
-                    ctx.get_type(*param).unwrap().print(ctx);
+                    ctx.borrow().get_type(*param).unwrap().print(ctx.clone());
                 }
                 eprint!(")");
                 if let Some(ret) = ret {
-                    ctx.get_type(*ret).unwrap().print(ctx);
+                    ctx.borrow().get_type(*ret).unwrap().print(ctx.clone());
                 }
             }
             Type::Struct(StructType { fields }) => {
@@ -49,17 +51,17 @@ impl Type {
                         eprint!(", ");
                     }
                     eprint!("{}: ", name);
-                    ctx.get_type(*ty).unwrap().print(ctx);
+                    ctx.borrow().get_type(*ty).unwrap().print(ctx.clone());
                 }
                 eprint!(" }}");
             }
             Type::Pointer(inner) => {
                 eprint!("*");
-                ctx.get_type(*inner).unwrap().print(ctx);
+                ctx.borrow().get_type(*inner).unwrap().print(ctx.clone());
             }
             Type::Array(ty, len) => {
                 eprint!("[");
-                ctx.get_type(*ty).unwrap().print(ctx);
+                ctx.borrow().get_type(*ty).unwrap().print(ctx.clone());
                 eprint!("; {}]", len);
             }
             Type::Tuple(types) => {
@@ -68,7 +70,7 @@ impl Type {
                     if i != 0 {
                         eprint!(", ");
                     }
-                    ctx.get_type(*ty).unwrap().print(ctx);
+                    ctx.borrow().get_type(*ty).unwrap().print(ctx.clone());
                 }
                 eprint!(")");
             }
