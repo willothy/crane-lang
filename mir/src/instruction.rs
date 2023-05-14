@@ -1,40 +1,43 @@
 use std::fmt::Display;
 
-use crate::{MIRContext, MIRNodeId, MIRPackage, MIRUnitId, TypeId};
+use crate::{MIRBlockId, MIRContext, MIRNodeId, MIRPackage, MIRUnitId, TypeId};
 use crane_lex as lex;
 use crane_parse::unit::Unit;
 use slotmap::Key;
 
 #[derive(Debug)]
 pub enum MIRNode {
-    Instruction { ty: TypeId, inst: MIRInstruction },
-    Termination { ty: TypeId, inst: MIRTermination },
+    Instruction { inst: MIRInstruction },
+    Termination { inst: MIRTermination },
     Value { value: MIRValue },
 }
 
 #[derive(Debug)]
 pub enum MIRValue {
+    /// The result of an instruction
     Result {
         ty: TypeId,
-        // Instruction id
+        /// Instruction id
         value: MIRNodeId,
     },
-    Literal {
-        ty: TypeId,
-        value: lex::Literal,
-    },
+    /// A literal value
+    Literal { ty: TypeId, value: lex::Literal },
+    /// A struct literal
     StructInit {
         ty: TypeId,
         fields: Vec<(String, MIRNodeId)>,
     },
+    /// An array literal
     ArrayInit {
         ty: TypeId,
         elements: Vec<MIRNodeId>,
     },
+    /// A tuple literal
     TupleInit {
         ty: TypeId,
         elements: Vec<MIRNodeId>,
     },
+    // TODO: Function Ptr
 }
 
 impl MIRValue {
@@ -111,26 +114,24 @@ impl MIRValue {
 #[derive(Debug)]
 pub enum MIRTermination {
     Return {
-        // Instruction id (result)
+        // value
         value: Option<MIRNodeId>,
     },
     Branch {
-        // Instruction id (result)
+        // Value
         cond: MIRNodeId,
         // Block id
-        then: MIRNodeId,
+        then: MIRBlockId,
         // Block id
-        r#else: MIRNodeId,
+        r#else: MIRBlockId,
     },
     Jump {
-        // Block id
-        target: MIRNodeId,
+        target: MIRBlockId,
     },
     JumpIf {
-        // Instruction id (result)
+        // Value
         cond: MIRNodeId,
-        // Block id
-        then: MIRNodeId,
+        then: MIRBlockId,
     },
 }
 
@@ -276,5 +277,9 @@ pub enum MIRInstruction {
         lhs: MIRNodeId,
         // Instruction id (result)
         rhs: MIRNodeId,
+    },
+    Cast {
+        value: MIRNodeId,
+        ty: TypeId,
     },
 }

@@ -27,10 +27,12 @@ new_key_type! {
 #[derive(Debug)]
 pub enum MIRItem {
     Function {
+        name: String,
         ty: TypeId,
         body: LinkedHashMap<String, MIRBlockId>,
     },
     Struct {
+        name: String,
         fields: LinkedHashMap<String, TypeId>,
     },
     // TODO:
@@ -42,6 +44,7 @@ pub enum MIRItem {
 pub struct MIRBlock {
     body: Vec<MIRNodeId>,
     termination: Option<MIRNodeId>,
+    pub name: String,
 }
 
 /// The MIRUnit is a control-flow graph structure
