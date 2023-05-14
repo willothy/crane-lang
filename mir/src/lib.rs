@@ -15,6 +15,8 @@ pub mod builder;
 pub mod graphviz;
 pub mod instruction;
 pub mod interner;
+pub mod scope;
+pub mod transformation;
 pub mod ty;
 
 new_key_type! {

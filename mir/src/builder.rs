@@ -26,6 +26,7 @@ pub struct InsertInfo {
     pub block: BlockId,
     pub loc: InsertPoint,
 }
+
 pub struct MIRBuilder {
     pub package: MIRPackage,
     pub ctx: Rc<RefCell<Context>>,
@@ -286,8 +287,11 @@ impl MIRBuilder {
         })
     }
 
-    pub fn build_f32(&mut self, ctx: &mut Context, value: f32) -> ValueId {
-        let ty = ctx.intern_type(Type::Primitive(Primitive::F32));
+    pub fn build_f32(&mut self, value: f32) -> ValueId {
+        let ty = self
+            .ctx
+            .borrow_mut()
+            .intern_type(Type::Primitive(Primitive::F32));
         self.create_value(MIRValue::Literal {
             ty,
             value: Literal::Float(value as f64),
@@ -396,12 +400,37 @@ impl MIRBuilder {
         self.create_instruction(MIRInstruction::Cast { value, ty })
     }
 
+    pub fn build_alloc(&mut self, ty: TypeId) -> ValueId {
+        self.create_instruction(MIRInstruction::Alloc { ty })
+    }
+
     pub fn build_load(&mut self, ptr: ValueId) -> ValueId {
         self.create_instruction(MIRInstruction::Load { ptr })
     }
 
     pub fn build_store(&mut self, ptr: ValueId, value: ValueId) -> ValueId {
         self.create_instruction(MIRInstruction::Store { ptr, value })
+    }
+
+    /// The resulting ValueId will reference a pointer to the access location, so that
+    /// `build_field_access` can be used with `build_load` and `build_store` instead of requiring
+    /// struct-specific load and store instructions
+    pub fn build_field_access(&mut self, value: ValueId, field: String) -> ValueId {
+        self.create_instruction(MIRInstruction::FieldAccess { value, field })
+    }
+
+    /// The resulting ValueId will reference a pointer to the access location, so that
+    /// `build_index_access` can be used with `build_load` and `build_store` instead of requiring
+    /// array-specific load and store instructions
+    pub fn build_index_access(&mut self, value: ValueId, index: ValueId) -> ValueId {
+        self.create_instruction(MIRInstruction::IndexAccess { value, index })
+    }
+
+    /// The resulting ValueId will reference a pointer to the access location, so that
+    /// `build_index_access` can be used with `build_load` and `build_store` instead of requiring
+    /// array-specific load and store instructions
+    pub fn build_tuple_access(&mut self, value: ValueId, index: usize) -> ValueId {
+        self.create_instruction(MIRInstruction::TupleAccess { value, index })
     }
 
     pub fn build_call(&mut self, callee: ValueId, args: Vec<ValueId>) -> ValueId {
@@ -723,6 +752,10 @@ impl MIRBuilder {
             }
             eprintln!("}}");
         }
+    }
+
+    pub(crate) fn build_char(&self, c: char) -> ValueId {
+        todo!()
     }
 }
 

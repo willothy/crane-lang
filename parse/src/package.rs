@@ -67,6 +67,10 @@ where
         self.units.get_mut(id)
     }
 
+    pub fn units(&self) -> impl Iterator<Item = &U> {
+        self.units.values()
+    }
+
     pub fn add_unit(&mut self, unit: U) -> K {
         self.units.insert(unit)
     }
