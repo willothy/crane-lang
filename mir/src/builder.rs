@@ -1,7 +1,7 @@
 use std::{cell::RefCell, rc::Rc};
 
 use crane_lex::{Literal, Primitive};
-use crane_parse::unit::Unit as UnitTrait;
+use crane_parse::{package::pass::Inspect, unit::Unit as UnitTrait};
 use linked_hash_map::LinkedHashMap;
 use slotmap::Key;
 
@@ -30,6 +30,68 @@ pub struct MIRBuilder {
     pub package: MIRPackage,
     pub ctx: Rc<RefCell<Context>>,
     pub insert_point: InsertInfo,
+}
+
+pub struct FnGraphVizPass {
+    result: String,
+}
+
+impl Inspect for FnGraphVizPass {
+    type Scope = MIRPackage;
+
+    type Input = (UnitId, ItemId);
+
+    fn inspect(&mut self, scope: &Self::Scope, input: Self::Input) {
+        let unit = scope.unit(input.0).unwrap();
+        let func = unit.items.get(input.1).unwrap();
+        let Item::Function { name: fn_name, ty: _, body } = func else {
+            panic!()
+        };
+        let mut nodes = vec![];
+        let mut edges = vec![];
+        for (i, (block_name, block_id)) in body.iter().enumerate() {
+            let node = format!("N{i}[label=\"{}\"];", block_name);
+            nodes.push(node);
+            match unit.blocks.get(*block_id).unwrap().termination {
+                Some(term) => match unit.node(term).unwrap() {
+                    MIRNode::Termination { inst } => match inst {
+                        MIRTermination::Return { value: _ } => {}
+                        MIRTermination::Branch { cond, then, r#else } => {
+                            let then_name = &unit.blocks.get(*then).unwrap().name;
+                            let then = body.iter().position(|v| v.0 == then_name).unwrap();
+
+                            let else_name = &unit.blocks.get(*r#else).unwrap().name;
+                            let r#else = body.iter().position(|v| v.0 == else_name).unwrap();
+                            edges.push(format!("N{} -> N{}[label=\"{:?}\"]", i, then, cond));
+                            edges.push(format!("N{} -> N{}[label=\"!{:?}\"]", i, r#else, cond));
+                        }
+                        MIRTermination::Jump { target } => {
+                            let target_name = &unit.blocks.get(*target).unwrap().name;
+                            let target = body.iter().position(|v| v.0 == target_name).unwrap();
+                            edges.push(format!("N{} -> N{}", i, target));
+                        }
+                        MIRTermination::JumpIf { cond, then } => {
+                            let then_name = &unit.blocks.get(*then).unwrap().name;
+                            let then = body.iter().position(|v| v.0 == then_name).unwrap();
+                            edges.push(format!("N{} -> N{}[label=\"{:?}\"]", i, then, cond));
+                        }
+                    },
+                    _ => panic!("Expected termination"),
+                },
+                None => {}
+            }
+            let mut lines = vec![];
+            lines.push(format!("digraph {} {{", fn_name));
+            for node in nodes.iter() {
+                lines.push(format!("    {}", node));
+            }
+            for edge in edges.iter() {
+                lines.push(format!("    {}", edge));
+            }
+            lines.push("}".to_string());
+            self.result = lines.join("\n");
+        }
+    }
 }
 
 impl MIRBuilder {
@@ -146,6 +208,29 @@ impl MIRBuilder {
             block.termination = Some(node);
         }
         node
+    }
+
+    pub fn build_struct(&mut self, ty: TypeId, fields: Vec<(String, ValueId)>) -> ValueId {
+        self.create_value(MIRValue::StructInit { ty, fields })
+    }
+
+    pub fn build_tuple(&mut self, ty: TypeId, elements: Vec<ValueId>) -> ValueId {
+        self.create_value(MIRValue::TupleInit { ty, elements })
+    }
+
+    pub fn build_array(&mut self, ty: TypeId, elements: Vec<ValueId>) -> ValueId {
+        self.create_value(MIRValue::ArrayInit { ty, elements })
+    }
+
+    pub fn build_string(&mut self, value: String) -> ValueId {
+        let ty = self
+            .ctx
+            .borrow_mut()
+            .intern_type(Type::Primitive(Primitive::Str));
+        self.create_value(MIRValue::Literal {
+            ty,
+            value: Literal::String(value),
+        })
     }
 
     pub fn build_u8(&mut self, value: u8) -> ValueId {
@@ -386,7 +471,6 @@ impl MIRBuilder {
             }
             MIRNode::Value { value } => {
                 value.print(self.ctx.clone(), &self.package, self.insert_point.unit);
-                // eprint!(" {}", value);
             }
         }
     }
@@ -703,7 +787,6 @@ pub mod tests {
 
         let lhs = builder.build_u32(5);
         let rhs = builder.build_u32(50);
-        // let rhs = builder.build_u
         let res = builder.build_add(lhs, rhs);
         let retval = builder.build_add(res, rhs);
 
@@ -722,6 +805,13 @@ pub mod tests {
         builder.build_return(Some(new_ret));
 
         builder.print_function(func);
+
+        let mut dot = FnGraphVizPass {
+            result: String::new(),
+        };
+        builder.package.inspect(&mut dot, (unit, func));
+        println!("{}", dot.result);
+
         if std::env::var("FORCE_FAIL").is_ok() {
             assert!(false)
         }

@@ -229,11 +229,13 @@ pub enum Primitive {
     F64,
     Bool,
     Char,
+    Str,
 }
 
 impl Display for Primitive {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            Primitive::Str => write!(f, "str"),
             Primitive::U8 => write!(f, "u8"),
             Primitive::U16 => write!(f, "u16"),
             Primitive::U32 => write!(f, "u32"),
