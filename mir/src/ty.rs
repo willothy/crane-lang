@@ -2,7 +2,7 @@ use std::{cell::RefCell, rc::Rc};
 
 use crane_lex::Primitive;
 
-use crate::{MIRContext, TypeId};
+use crate::{Context, TypeId};
 
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
 pub struct StructType {
@@ -27,7 +27,7 @@ pub enum Type {
 }
 
 impl Type {
-    pub fn print(&self, ctx: Rc<RefCell<MIRContext>>) {
+    pub fn print(&self, ctx: Rc<RefCell<Context>>) {
         match self {
             Type::Unit => eprint!("()"),
             Type::Primitive(p) => eprint!("{}", p),

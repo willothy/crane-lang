@@ -7,7 +7,6 @@ use chumsky::span::SimpleSpan;
 use chumsky::{select, IterParser, ParseResult, Parser};
 use lex::{IntoStream, Span, SplitSpanned};
 use recovery::Fallback;
-use slotmap::new_key_type;
 
 use crane_lex as lex;
 use crane_lex::{Keyword, Spanned, Token, Visibility};

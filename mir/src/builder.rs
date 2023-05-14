@@ -1,21 +1,20 @@
 use std::{cell::RefCell, rc::Rc};
 
 use crane_lex::{Literal, Primitive};
-use crane_parse::unit::Unit;
+use crane_parse::unit::Unit as UnitTrait;
 use linked_hash_map::LinkedHashMap;
 use slotmap::Key;
 
 use crate::{
     instruction::{MIRInstruction, MIRNode, MIRTermination, MIRValue},
     ty::Type,
-    MIRBlock, MIRBlockId, MIRContext, MIRItem, MIRItemId, MIRNodeId, MIRPackage, MIRUnit,
-    MIRUnitId, TypeId,
+    Block, BlockId, Context, Item, ItemId, MIRPackage, TypeId, Unit, UnitId, ValueId,
 };
 
 #[derive(Debug, Default)]
 pub enum InsertPoint {
-    Before(MIRNodeId),
-    After(MIRNodeId),
+    Before(ValueId),
+    After(ValueId),
     Start,
     #[default]
     End,
@@ -23,18 +22,18 @@ pub enum InsertPoint {
 
 #[derive(Debug, Default)]
 pub struct InsertInfo {
-    pub unit: MIRUnitId,
-    pub block: MIRBlockId,
+    pub unit: UnitId,
+    pub block: BlockId,
     pub point: InsertPoint,
 }
 pub struct MIRBuilder {
     pub package: MIRPackage,
-    pub ctx: Rc<RefCell<MIRContext>>,
+    pub ctx: Rc<RefCell<Context>>,
     pub insert_point: InsertInfo,
 }
 
 impl MIRBuilder {
-    pub fn new(ctx: Rc<RefCell<MIRContext>>) -> Self {
+    pub fn new(ctx: Rc<RefCell<Context>>) -> Self {
         Self {
             package: MIRPackage::new(),
             insert_point: InsertInfo {
@@ -44,28 +43,28 @@ impl MIRBuilder {
         }
     }
 
-    pub fn create_unit(&mut self, name: String, parent: Option<MIRUnitId>) -> MIRUnitId {
-        let unit = self.package.add_unit(MIRUnit::new(name, parent));
+    pub fn create_unit(&mut self, name: String, parent: Option<UnitId>) -> UnitId {
+        let unit = self.package.add_unit(Unit::new(name, parent));
         if parent.is_none() {
             self.package.set_root(unit);
         }
         unit
     }
 
-    pub fn get_unit(&self, id: MIRUnitId) -> Option<&MIRUnit> {
+    pub fn get_unit(&self, id: UnitId) -> Option<&Unit> {
         self.package.unit(id)
     }
 
-    pub fn get_unit_mut(&mut self, id: MIRUnitId) -> Option<&mut MIRUnit> {
+    pub fn get_unit_mut(&mut self, id: UnitId) -> Option<&mut Unit> {
         self.package.unit_mut(id)
     }
 
-    pub fn get_or_insert_function(&mut self, name: String, ty: Type) -> MIRItemId {
+    pub fn get_or_insert_function(&mut self, name: String, ty: Type) -> ItemId {
         let unit = self.package.unit_mut(self.insert_point.unit).unwrap();
 
         let fn_ty = self.ctx.borrow_mut().types.get_or_intern(ty);
 
-        let item = MIRItem::Function {
+        let item = Item::Function {
             name: name.clone(),
             ty: fn_ty,
             body: LinkedHashMap::new(),
@@ -77,49 +76,49 @@ impl MIRBuilder {
         item_id
     }
 
-    pub fn set_insert_point(&mut self, unit: MIRUnitId, block: MIRBlockId, point: InsertPoint) {
+    pub fn set_insert_point(&mut self, unit: UnitId, block: BlockId, point: InsertPoint) {
         self.insert_point = InsertInfo { unit, block, point };
     }
 
-    pub fn set_insert_unit(&mut self, unit: MIRUnitId) {
+    pub fn set_insert_unit(&mut self, unit: UnitId) {
         self.insert_point.unit = unit;
     }
 
-    pub fn set_insert_block(&mut self, block: MIRBlockId) {
+    pub fn set_insert_block(&mut self, block: BlockId) {
         self.insert_point.block = block;
     }
 
-    pub fn get_block_by_name(&self, func: MIRItemId, name: String) -> Option<&MIRBlockId> {
+    pub fn get_block_by_name(&self, func: ItemId, name: String) -> Option<&BlockId> {
         let insert_unit = self.insert_point.unit;
         let unit = self.package.unit(insert_unit)?;
         let func = unit.items.get(func);
-        if let Some(MIRItem::Function { body, .. }) = func {
+        if let Some(Item::Function { body, .. }) = func {
             body.get(&name)
         } else {
             None
         }
     }
 
-    pub fn create_block(&mut self, func: MIRItemId, name: String) -> MIRBlockId {
+    pub fn create_block(&mut self, func: ItemId, name: String) -> BlockId {
         let insert_point = &self.insert_point;
         let unit = self.package.unit_mut(insert_point.unit).unwrap();
         let func = unit.items.get_mut(func).unwrap();
         if !func.is_function() {
             panic!("Item {func:?} is not a function");
         }
-        let block = unit.blocks.insert(MIRBlock {
+        let block = unit.blocks.insert(Block {
             name: name.clone(),
             body: vec![],
             termination: None,
         });
 
-        if let MIRItem::Function { body, .. } = func {
+        if let Item::Function { body, .. } = func {
             body.insert(name, block);
         }
         block
     }
 
-    fn create_instruction(&mut self, instruction: MIRInstruction) -> MIRNodeId {
+    fn create_instruction(&mut self, instruction: MIRInstruction) -> ValueId {
         let insert_point = &self.insert_point;
         let unit = self.package.unit_mut(insert_point.unit).unwrap();
         let id = unit.new_node(MIRNode::Instruction { inst: instruction });
@@ -129,13 +128,13 @@ impl MIRBuilder {
         id
     }
 
-    pub fn create_value(&mut self, value: MIRValue) -> MIRNodeId {
+    pub fn create_value(&mut self, value: MIRValue) -> ValueId {
         let insert_point = &self.insert_point;
         let unit = self.package.unit_mut(insert_point.unit).unwrap();
         unit.new_node(MIRNode::Value { value })
     }
 
-    pub fn create_termination(&mut self, termination: MIRTermination) -> MIRNodeId {
+    pub fn create_termination(&mut self, termination: MIRTermination) -> ValueId {
         let insert_point = &self.insert_point;
         let unit = self.package.unit_mut(insert_point.unit).unwrap();
         let node = unit.new_node(MIRNode::Termination { inst: termination });
@@ -149,7 +148,7 @@ impl MIRBuilder {
         node
     }
 
-    pub fn build_u8(&mut self, value: u8) -> MIRNodeId {
+    pub fn build_u8(&mut self, value: u8) -> ValueId {
         let ty = self
             .ctx
             .borrow_mut()
@@ -160,7 +159,7 @@ impl MIRBuilder {
         })
     }
 
-    pub fn build_u16(&mut self, value: u16) -> MIRNodeId {
+    pub fn build_u16(&mut self, value: u16) -> ValueId {
         let ty = self
             .ctx
             .borrow_mut()
@@ -171,7 +170,7 @@ impl MIRBuilder {
         })
     }
 
-    pub fn build_u32(&mut self, value: u32) -> MIRNodeId {
+    pub fn build_u32(&mut self, value: u32) -> ValueId {
         let ty = self
             .ctx
             .borrow_mut()
@@ -182,7 +181,7 @@ impl MIRBuilder {
         })
     }
 
-    pub fn build_u64(&mut self, value: u64) -> MIRNodeId {
+    pub fn build_u64(&mut self, value: u64) -> ValueId {
         let ty = self
             .ctx
             .borrow_mut()
@@ -193,7 +192,7 @@ impl MIRBuilder {
         })
     }
 
-    pub fn build_i8(&mut self, value: i8) -> MIRNodeId {
+    pub fn build_i8(&mut self, value: i8) -> ValueId {
         let ty = self
             .ctx
             .borrow_mut()
@@ -204,7 +203,7 @@ impl MIRBuilder {
         })
     }
 
-    pub fn build_i16(&mut self, value: i16) -> MIRNodeId {
+    pub fn build_i16(&mut self, value: i16) -> ValueId {
         let ty = self
             .ctx
             .borrow_mut()
@@ -215,7 +214,7 @@ impl MIRBuilder {
         })
     }
 
-    pub fn build_i32(&mut self, value: i32) -> MIRNodeId {
+    pub fn build_i32(&mut self, value: i32) -> ValueId {
         let ty = self
             .ctx
             .borrow_mut()
@@ -226,7 +225,7 @@ impl MIRBuilder {
         })
     }
 
-    pub fn build_i64(&mut self, value: i64) -> MIRNodeId {
+    pub fn build_i64(&mut self, value: i64) -> ValueId {
         let ty = self
             .ctx
             .borrow_mut()
@@ -237,7 +236,7 @@ impl MIRBuilder {
         })
     }
 
-    pub fn build_f32(&mut self, ctx: &mut MIRContext, value: f32) -> MIRNodeId {
+    pub fn build_f32(&mut self, ctx: &mut Context, value: f32) -> ValueId {
         let ty = ctx.intern_type(Type::Primitive(Primitive::F32));
         self.create_value(MIRValue::Literal {
             ty,
@@ -245,7 +244,7 @@ impl MIRBuilder {
         })
     }
 
-    pub fn build_f64(&mut self, value: f64) -> MIRNodeId {
+    pub fn build_f64(&mut self, value: f64) -> ValueId {
         let ty = self
             .ctx
             .borrow_mut()
@@ -256,7 +255,7 @@ impl MIRBuilder {
         })
     }
 
-    pub fn build_bool(&mut self, value: bool) -> MIRNodeId {
+    pub fn build_bool(&mut self, value: bool) -> ValueId {
         let ty = self
             .ctx
             .borrow_mut()
@@ -267,120 +266,115 @@ impl MIRBuilder {
         })
     }
 
-    pub fn build_add(&mut self, lhs: MIRNodeId, rhs: MIRNodeId) -> MIRNodeId {
+    pub fn build_add(&mut self, lhs: ValueId, rhs: ValueId) -> ValueId {
         self.create_instruction(MIRInstruction::Add { lhs, rhs })
     }
 
-    pub fn build_sub(&mut self, lhs: MIRNodeId, rhs: MIRNodeId) -> MIRNodeId {
+    pub fn build_sub(&mut self, lhs: ValueId, rhs: ValueId) -> ValueId {
         self.create_instruction(MIRInstruction::Sub { lhs, rhs })
     }
 
-    pub fn build_mul(&mut self, lhs: MIRNodeId, rhs: MIRNodeId) -> MIRNodeId {
+    pub fn build_mul(&mut self, lhs: ValueId, rhs: ValueId) -> ValueId {
         self.create_instruction(MIRInstruction::Mul { lhs, rhs })
     }
 
-    pub fn build_div(&mut self, lhs: MIRNodeId, rhs: MIRNodeId) -> MIRNodeId {
+    pub fn build_div(&mut self, lhs: ValueId, rhs: ValueId) -> ValueId {
         self.create_instruction(MIRInstruction::Div { lhs, rhs })
     }
 
-    pub fn build_rem(&mut self, lhs: MIRNodeId, rhs: MIRNodeId) -> MIRNodeId {
+    pub fn build_rem(&mut self, lhs: ValueId, rhs: ValueId) -> ValueId {
         self.create_instruction(MIRInstruction::Rem { lhs, rhs })
     }
 
-    pub fn build_bitwise_and(&mut self, lhs: MIRNodeId, rhs: MIRNodeId) -> MIRNodeId {
+    pub fn build_bitwise_and(&mut self, lhs: ValueId, rhs: ValueId) -> ValueId {
         self.create_instruction(MIRInstruction::BitAnd { lhs, rhs })
     }
 
-    pub fn build_bitwise_or(&mut self, lhs: MIRNodeId, rhs: MIRNodeId) -> MIRNodeId {
+    pub fn build_bitwise_or(&mut self, lhs: ValueId, rhs: ValueId) -> ValueId {
         self.create_instruction(MIRInstruction::BitOr { lhs, rhs })
     }
 
-    pub fn build_bitwise_xor(&mut self, lhs: MIRNodeId, rhs: MIRNodeId) -> MIRNodeId {
+    pub fn build_bitwise_xor(&mut self, lhs: ValueId, rhs: ValueId) -> ValueId {
         self.create_instruction(MIRInstruction::BitXor { lhs, rhs })
     }
 
-    pub fn build_bitwise_not(&mut self, value: MIRNodeId) -> MIRNodeId {
+    pub fn build_bitwise_not(&mut self, value: ValueId) -> ValueId {
         self.create_instruction(MIRInstruction::BitNot { value })
     }
 
-    pub fn build_shl(&mut self, lhs: MIRNodeId, rhs: MIRNodeId) -> MIRNodeId {
+    pub fn build_shl(&mut self, lhs: ValueId, rhs: ValueId) -> ValueId {
         self.create_instruction(MIRInstruction::Shl { lhs, rhs })
     }
 
-    pub fn build_shr(&mut self, lhs: MIRNodeId, rhs: MIRNodeId) -> MIRNodeId {
+    pub fn build_shr(&mut self, lhs: ValueId, rhs: ValueId) -> ValueId {
         self.create_instruction(MIRInstruction::Shr { lhs, rhs })
     }
 
-    pub fn build_eq(&mut self, lhs: MIRNodeId, rhs: MIRNodeId) -> MIRNodeId {
+    pub fn build_eq(&mut self, lhs: ValueId, rhs: ValueId) -> ValueId {
         self.create_instruction(MIRInstruction::Eq { lhs, rhs })
     }
 
-    pub fn build_neq(&mut self, lhs: MIRNodeId, rhs: MIRNodeId) -> MIRNodeId {
+    pub fn build_neq(&mut self, lhs: ValueId, rhs: ValueId) -> ValueId {
         self.create_instruction(MIRInstruction::Neq { lhs, rhs })
     }
 
-    pub fn build_lt(&mut self, lhs: MIRNodeId, rhs: MIRNodeId) -> MIRNodeId {
+    pub fn build_lt(&mut self, lhs: ValueId, rhs: ValueId) -> ValueId {
         self.create_instruction(MIRInstruction::Lt { lhs, rhs })
     }
 
-    pub fn build_gt(&mut self, lhs: MIRNodeId, rhs: MIRNodeId) -> MIRNodeId {
+    pub fn build_gt(&mut self, lhs: ValueId, rhs: ValueId) -> ValueId {
         self.create_instruction(MIRInstruction::Gt { lhs, rhs })
     }
 
-    pub fn build_leq(&mut self, lhs: MIRNodeId, rhs: MIRNodeId) -> MIRNodeId {
+    pub fn build_leq(&mut self, lhs: ValueId, rhs: ValueId) -> ValueId {
         self.create_instruction(MIRInstruction::Leq { lhs, rhs })
     }
 
-    pub fn build_geq(&mut self, lhs: MIRNodeId, rhs: MIRNodeId) -> MIRNodeId {
+    pub fn build_geq(&mut self, lhs: ValueId, rhs: ValueId) -> ValueId {
         self.create_instruction(MIRInstruction::Geq { lhs, rhs })
     }
 
-    pub fn build_not(&mut self, value: MIRNodeId) -> MIRNodeId {
+    pub fn build_not(&mut self, value: ValueId) -> ValueId {
         self.create_instruction(MIRInstruction::Not { value })
     }
 
-    pub fn build_neg(&mut self, value: MIRNodeId) -> MIRNodeId {
+    pub fn build_neg(&mut self, value: ValueId) -> ValueId {
         self.create_instruction(MIRInstruction::Neg { value })
     }
 
-    pub fn build_cast(&mut self, value: MIRNodeId, ty: TypeId) -> MIRNodeId {
+    pub fn build_cast(&mut self, value: ValueId, ty: TypeId) -> ValueId {
         self.create_instruction(MIRInstruction::Cast { value, ty })
     }
 
-    pub fn build_load(&mut self, ptr: MIRNodeId) -> MIRNodeId {
+    pub fn build_load(&mut self, ptr: ValueId) -> ValueId {
         self.create_instruction(MIRInstruction::Load { ptr })
     }
 
-    pub fn build_store(&mut self, ptr: MIRNodeId, value: MIRNodeId) -> MIRNodeId {
+    pub fn build_store(&mut self, ptr: ValueId, value: ValueId) -> ValueId {
         self.create_instruction(MIRInstruction::Store { ptr, value })
     }
 
-    pub fn build_call(&mut self, callee: MIRNodeId, args: Vec<MIRNodeId>) -> MIRNodeId {
+    pub fn build_call(&mut self, callee: ValueId, args: Vec<ValueId>) -> ValueId {
         self.create_instruction(MIRInstruction::Call { callee, args })
     }
 
-    pub fn build_return(&mut self, value: Option<MIRNodeId>) -> MIRNodeId {
+    pub fn build_return(&mut self, value: Option<ValueId>) -> ValueId {
         self.create_termination(MIRTermination::Return { value })
     }
 
-    pub fn build_branch(
-        &mut self,
-        cond: MIRNodeId,
-        then: MIRBlockId,
-        r#else: MIRBlockId,
-    ) -> MIRNodeId {
+    pub fn build_branch(&mut self, cond: ValueId, then: BlockId, r#else: BlockId) -> ValueId {
         self.create_termination(MIRTermination::Branch { cond, then, r#else })
     }
 
-    pub fn build_jump(&mut self, target: MIRBlockId) -> MIRNodeId {
+    pub fn build_jump(&mut self, target: BlockId) -> ValueId {
         self.create_termination(MIRTermination::Jump { target })
     }
 
-    pub fn build_jump_if(&mut self, cond: MIRNodeId, then: MIRBlockId) -> MIRNodeId {
+    pub fn build_jump_if(&mut self, cond: ValueId, then: BlockId) -> ValueId {
         self.create_termination(MIRTermination::JumpIf { cond, then })
     }
 
-    pub fn print_value(&self, node_id: MIRNodeId) {
+    pub fn print_value(&self, node_id: ValueId) {
         let unit = self.package.unit(self.insert_point.unit).unwrap();
         let node = unit.nodes.get(node_id).unwrap();
         match node {
@@ -397,7 +391,7 @@ impl MIRBuilder {
         }
     }
 
-    pub fn print_node(&self, node: MIRNodeId) {
+    pub fn print_node(&self, node: ValueId) {
         let unit = self.package.unit(self.insert_point.unit).unwrap();
         let node = unit.nodes.get(node).unwrap();
         match node {
@@ -571,8 +565,11 @@ impl MIRBuilder {
                     }
                     eprintln!()
                 }
+                #[allow(unused_variables)]
                 MIRInstruction::FieldAccess { value, field } => todo!(),
+                #[allow(unused_variables)]
                 MIRInstruction::IndexAccess { value, index } => todo!(),
+                #[allow(unused_variables)]
                 MIRInstruction::TupleAccess { value, index } => todo!(),
             },
             MIRNode::Termination { inst } => match inst {
@@ -612,11 +609,12 @@ impl MIRBuilder {
                     eprintln!("  jump_if: {:?} {:?}", cond, then)
                 }
             },
+            #[allow(unused_variables)]
             MIRNode::Value { value } => panic!(),
         }
     }
 
-    pub fn print_block(&self, block: MIRBlockId) {
+    pub fn print_block(&self, block: BlockId) {
         let insert_point = &self.insert_point;
         let unit = self.package.unit(insert_point.unit).unwrap();
         let block = unit.blocks.get(block).unwrap();
@@ -630,12 +628,12 @@ impl MIRBuilder {
         }
     }
 
-    pub fn print_function(&self, func: MIRItemId) {
+    pub fn print_function(&self, func: ItemId) {
         let insert_point = &self.insert_point;
         let unit = self.package.unit(insert_point.unit).unwrap();
         let func = unit.items.get(func).unwrap();
 
-        if let MIRItem::Function { name, body, ty } = func {
+        if let Item::Function { name, body, ty } = func {
             eprint!("fn {}", name);
             let _ctx = self.ctx.borrow();
             let ty = _ctx.types.get(*ty).unwrap();
@@ -681,15 +679,15 @@ pub mod tests {
     use crane_lex::Primitive;
 
     use super::*;
-    use crate::{ty::FunctionType, MIRContext};
+    use crate::{ty::FunctionType, Context};
 
     #[test]
     fn basic() {
-        let ctx = Rc::new(RefCell::new(MIRContext::new()));
+        let ctx = Rc::new(RefCell::new(Context::new()));
         let mut builder = MIRBuilder::new(ctx.clone());
         let unit = builder.create_unit("test".to_string(), None);
         // make sure to set the insert unit!
-        builder.set_insert_point(unit, MIRBlockId::default(), InsertPoint::End);
+        builder.set_insert_point(unit, BlockId::default(), InsertPoint::End);
         let u32_ty = ctx
             .borrow_mut()
             .intern_type(Type::Primitive(Primitive::U32));

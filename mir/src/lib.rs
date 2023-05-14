@@ -1,14 +1,14 @@
-use std::{collections::HashMap, fmt::Display, hash::Hash};
+use std::{collections::HashMap, hash::Hash};
 
-use instruction::{MIRInstruction, MIRNode, MIRTermination};
+use instruction::MIRNode;
 use interner::Interner;
-use lex::Primitive;
 use linked_hash_map::LinkedHashMap;
-use slotmap::{new_key_type, Key, SlotMap};
+use slotmap::{new_key_type, SlotMap};
 
+#[allow(unused)]
 use crane_lex as lex;
 use crane_parse as parse;
-use parse::{package::Package, unit::Unit};
+use parse::package::Package;
 use ty::Type;
 
 pub mod builder;
@@ -18,18 +18,18 @@ pub mod ty;
 
 new_key_type! {
     pub struct TypeId;
-    pub struct MIRUnitId;
-    pub struct MIRBlockId;
-    pub struct MIRNodeId;
-    pub struct MIRItemId;
+    pub struct UnitId;
+    pub struct BlockId;
+    pub struct ValueId;
+    pub struct ItemId;
 }
 
 #[derive(Debug)]
-pub enum MIRItem {
+pub enum Item {
     Function {
         name: String,
         ty: TypeId,
-        body: LinkedHashMap<String, MIRBlockId>,
+        body: LinkedHashMap<String, BlockId>,
     },
     Struct {
         name: String,
@@ -40,37 +40,37 @@ pub enum MIRItem {
     // Static { ty: TypeId, value: MIRNodeId },
 }
 
-impl MIRItem {
+impl Item {
     pub fn is_function(&self) -> bool {
-        matches!(self, MIRItem::Function { .. })
+        matches!(self, Item::Function { .. })
     }
 
     pub fn is_struct(&self) -> bool {
-        matches!(self, MIRItem::Struct { .. })
+        matches!(self, Item::Struct { .. })
     }
 }
 
 #[derive(Debug)]
-pub struct MIRBlock {
-    body: Vec<MIRNodeId>,
-    termination: Option<MIRNodeId>,
+pub struct Block {
+    body: Vec<ValueId>,
+    termination: Option<ValueId>,
     pub name: String,
 }
 
 /// The MIRUnit is a control-flow graph structure
 /// Each node is an instruction or immediate value (literal)
 #[derive(Debug)]
-pub struct MIRUnit {
+pub struct Unit {
     pub name: String,
-    pub parent: Option<MIRUnitId>,
-    pub blocks: SlotMap<MIRBlockId, MIRBlock>,
-    pub nodes: SlotMap<MIRNodeId, MIRNode>,
-    pub items: SlotMap<MIRItemId, MIRItem>,
-    pub members: HashMap<String, MIRItemId>,
+    pub parent: Option<UnitId>,
+    pub blocks: SlotMap<BlockId, Block>,
+    pub nodes: SlotMap<ValueId, MIRNode>,
+    pub items: SlotMap<ItemId, Item>,
+    pub members: HashMap<String, ItemId>,
 }
 
-impl MIRUnit {
-    pub fn new(name: String, parent: Option<MIRUnitId>) -> Self {
+impl Unit {
+    pub fn new(name: String, parent: Option<UnitId>) -> Self {
         Self {
             name,
             parent,
@@ -82,43 +82,43 @@ impl MIRUnit {
     }
 }
 
-impl Unit<MIRUnitId, MIRNodeId, MIRItemId, MIRNode> for MIRUnit {
+impl parse::unit::Unit<UnitId, ValueId, ItemId, MIRNode> for Unit {
     fn name(&self) -> &str {
         &self.name
     }
 
-    fn parent(&self) -> Option<MIRUnitId> {
+    fn parent(&self) -> Option<UnitId> {
         self.parent
     }
 
-    fn node(&self, id: MIRNodeId) -> Option<&MIRNode> {
+    fn node(&self, id: ValueId) -> Option<&MIRNode> {
         self.nodes.get(id)
     }
 
-    fn node_mut(&mut self, id: MIRNodeId) -> Option<&mut MIRNode> {
+    fn node_mut(&mut self, id: ValueId) -> Option<&mut MIRNode> {
         self.nodes.get_mut(id)
     }
 
-    fn new_node(&mut self, node: MIRNode) -> MIRNodeId {
+    fn new_node(&mut self, node: MIRNode) -> ValueId {
         self.nodes.insert(node)
     }
 
-    fn members(&self) -> &std::collections::HashMap<String, MIRItemId> {
+    fn members(&self) -> &std::collections::HashMap<String, ItemId> {
         &self.members
     }
 
-    fn members_mut(&mut self) -> &mut std::collections::HashMap<String, MIRItemId> {
+    fn members_mut(&mut self) -> &mut std::collections::HashMap<String, ItemId> {
         &mut self.members
     }
 }
 
-pub type MIRPackage = Package<MIRUnitId, MIRUnit, MIRNodeId, MIRNode, MIRItemId>;
+pub type MIRPackage = Package<UnitId, Unit, ValueId, MIRNode, ItemId>;
 
-pub struct MIRContext {
+pub struct Context {
     types: Interner<TypeId, Type>,
 }
 
-impl MIRContext {
+impl Context {
     pub fn new() -> Self {
         Self {
             types: Interner::new(),

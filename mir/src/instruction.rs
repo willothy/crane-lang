@@ -1,6 +1,6 @@
-use std::{cell::RefCell, fmt::Display, rc::Rc};
+use std::{cell::RefCell, rc::Rc};
 
-use crate::{MIRBlockId, MIRContext, MIRNodeId, MIRPackage, MIRUnitId, TypeId};
+use crate::{BlockId, Context, MIRPackage, TypeId, UnitId, ValueId};
 use crane_lex as lex;
 use crane_parse::unit::Unit;
 use slotmap::Key;
@@ -18,30 +18,24 @@ pub enum MIRValue {
     Result {
         ty: TypeId,
         /// Instruction id
-        value: MIRNodeId,
+        value: ValueId,
     },
     /// A literal value
     Literal { ty: TypeId, value: lex::Literal },
     /// A struct literal
     StructInit {
         ty: TypeId,
-        fields: Vec<(String, MIRNodeId)>,
+        fields: Vec<(String, ValueId)>,
     },
     /// An array literal
-    ArrayInit {
-        ty: TypeId,
-        elements: Vec<MIRNodeId>,
-    },
+    ArrayInit { ty: TypeId, elements: Vec<ValueId> },
     /// A tuple literal
-    TupleInit {
-        ty: TypeId,
-        elements: Vec<MIRNodeId>,
-    },
+    TupleInit { ty: TypeId, elements: Vec<ValueId> },
     // TODO: Function Ptr
 }
 
 impl MIRValue {
-    pub fn print(&self, ctx: Rc<RefCell<MIRContext>>, pkg: &MIRPackage, unit: MIRUnitId) {
+    pub fn print(&self, ctx: Rc<RefCell<Context>>, pkg: &MIRPackage, unit: UnitId) {
         match self {
             MIRValue::Result { ty, value } => {
                 let _ctx = ctx.borrow();
@@ -120,23 +114,23 @@ impl MIRValue {
 pub enum MIRTermination {
     Return {
         // value
-        value: Option<MIRNodeId>,
+        value: Option<ValueId>,
     },
     Branch {
         // Value
-        cond: MIRNodeId,
+        cond: ValueId,
         // Block id
-        then: MIRBlockId,
+        then: BlockId,
         // Block id
-        r#else: MIRBlockId,
+        r#else: BlockId,
     },
     Jump {
-        target: MIRBlockId,
+        target: BlockId,
     },
     JumpIf {
         // Value
-        cond: MIRNodeId,
-        then: MIRBlockId,
+        cond: ValueId,
+        then: BlockId,
     },
 }
 
@@ -147,144 +141,144 @@ pub enum MIRInstruction {
     },
     Load {
         // Instruction id (result)
-        ptr: MIRNodeId,
+        ptr: ValueId,
     },
     Store {
         // Instruction id (result)
-        ptr: MIRNodeId,
+        ptr: ValueId,
         // Instruction id (result)
-        value: MIRNodeId,
+        value: ValueId,
     },
     Call {
-        callee: MIRNodeId,
-        args: Vec<MIRNodeId>,
+        callee: ValueId,
+        args: Vec<ValueId>,
     },
     IndexAccess {
         // Instruction id (result)
-        value: MIRNodeId,
+        value: ValueId,
         // Instruction id (result)
-        index: MIRNodeId,
+        index: ValueId,
     },
     TupleAccess {
         // Instruction id (result)
-        value: MIRNodeId,
+        value: ValueId,
         index: usize,
     },
     FieldAccess {
         // Instruction id (result)
-        value: MIRNodeId,
+        value: ValueId,
         field: String,
     },
     Add {
         // Instruction id (result)
-        lhs: MIRNodeId,
+        lhs: ValueId,
         // Instruction id (result)
-        rhs: MIRNodeId,
+        rhs: ValueId,
     },
     Sub {
         // Instruction id (result)
-        lhs: MIRNodeId,
+        lhs: ValueId,
         // Instruction id (result)
-        rhs: MIRNodeId,
+        rhs: ValueId,
     },
     Mul {
         // Instruction id (result)
-        lhs: MIRNodeId,
+        lhs: ValueId,
         // Instruction id (result)
-        rhs: MIRNodeId,
+        rhs: ValueId,
     },
     Div {
         // Instruction id (result)
-        lhs: MIRNodeId,
+        lhs: ValueId,
         // Instruction id (result)
-        rhs: MIRNodeId,
+        rhs: ValueId,
     },
     Rem {
         // Instruction id (result)
-        lhs: MIRNodeId,
+        lhs: ValueId,
         // Instruction id (result)
-        rhs: MIRNodeId,
+        rhs: ValueId,
     },
     Neg {
         // Instruction id (result)
-        value: MIRNodeId,
+        value: ValueId,
     },
     Not {
         // Instruction id (result)
-        value: MIRNodeId,
+        value: ValueId,
     },
     BitAnd {
         // Instruction id (result)
-        lhs: MIRNodeId,
+        lhs: ValueId,
         // Instruction id (result)
-        rhs: MIRNodeId,
+        rhs: ValueId,
     },
     BitOr {
         // Instruction id (result)
-        lhs: MIRNodeId,
+        lhs: ValueId,
         // Instruction id (result)
-        rhs: MIRNodeId,
+        rhs: ValueId,
     },
     BitXor {
         // Instruction id (result)
-        lhs: MIRNodeId,
+        lhs: ValueId,
         // Instruction id (result)
-        rhs: MIRNodeId,
+        rhs: ValueId,
     },
     BitNot {
         // Instruction id (result)
-        value: MIRNodeId,
+        value: ValueId,
     },
     Shl {
         // Instruction id (result)
-        lhs: MIRNodeId,
+        lhs: ValueId,
         // Instruction id (result)
-        rhs: MIRNodeId,
+        rhs: ValueId,
     },
     Shr {
         // Instruction id (result)
-        lhs: MIRNodeId,
+        lhs: ValueId,
         // Instruction id (result)
-        rhs: MIRNodeId,
+        rhs: ValueId,
     },
     Eq {
         // Instruction id (result)
-        lhs: MIRNodeId,
+        lhs: ValueId,
         // Instruction id (result)
-        rhs: MIRNodeId,
+        rhs: ValueId,
     },
     Neq {
         // Instruction id (result)
-        lhs: MIRNodeId,
+        lhs: ValueId,
         // Instruction id (result)
-        rhs: MIRNodeId,
+        rhs: ValueId,
     },
     Lt {
         // Instruction id (result)
-        lhs: MIRNodeId,
+        lhs: ValueId,
         // Instruction id (result)
-        rhs: MIRNodeId,
+        rhs: ValueId,
     },
     Leq {
         // Instruction id (result)
-        lhs: MIRNodeId,
+        lhs: ValueId,
         // Instruction id (result)
-        rhs: MIRNodeId,
+        rhs: ValueId,
     },
     Gt {
         // Instruction id (result)
-        lhs: MIRNodeId,
+        lhs: ValueId,
         // Instruction id (result)
-        rhs: MIRNodeId,
+        rhs: ValueId,
     },
     Geq {
         // Instruction id (result)
-        lhs: MIRNodeId,
+        lhs: ValueId,
         // Instruction id (result)
-        rhs: MIRNodeId,
+        rhs: ValueId,
     },
     Cast {
-        value: MIRNodeId,
+        value: ValueId,
         ty: TypeId,
     },
 }
