@@ -1,4 +1,4 @@
-use std::{cell::RefCell, rc::Rc};
+use std::{cell::RefCell, fmt::Write, rc::Rc};
 
 use crate::{BlockId, Context, MIRPackage, TypeId, UnitId, ValueId};
 use crane_lex as lex;
@@ -35,34 +35,40 @@ pub enum MIRValue {
 }
 
 impl MIRValue {
-    pub fn print(&self, ctx: Rc<RefCell<Context>>, pkg: &MIRPackage, unit: UnitId) {
+    pub fn print(
+        &self,
+        ctx: Rc<RefCell<Context>>,
+        pkg: &MIRPackage,
+        unit: UnitId,
+        writer: &mut dyn Write,
+    ) {
         match self {
             MIRValue::Result { ty, value } => {
                 let _ctx = ctx.borrow();
                 let ty = _ctx.get_type(*ty).unwrap();
-                ty.print(ctx.clone());
-                eprint!("%{:?}", value.data());
+                ty.print(ctx.clone(), writer);
+                write!(writer, "%{:?}", value.data()).unwrap();
             }
             MIRValue::Literal { ty, value } => {
                 let _ctx = ctx.borrow();
                 let ty = _ctx.get_type(*ty).unwrap();
-                ty.print(ctx.clone());
-                eprint!(" {}", value);
+                ty.print(ctx.clone(), writer);
+                write!(writer, " {}", value).unwrap();
             }
             MIRValue::StructInit { ty, fields } => {
                 let _ctx = ctx.borrow();
                 let ty = _ctx.get_type(*ty).unwrap();
-                ty.print(ctx.clone());
+                ty.print(ctx.clone(), writer);
 
-                eprintln!(" {{");
+                write!(writer, " {{").unwrap();
                 for (i, (name, value)) in fields.iter().enumerate() {
                     if i != 0 {
-                        eprintln!(",");
+                        write!(writer, ",").unwrap();
                     }
-                    eprint!("{}: ", name);
+                    write!(writer, "{}: ", name).unwrap();
                     match pkg.unit(unit).unwrap().node(*value).unwrap() {
                         MIRNode::Value { value } => {
-                            value.print(ctx.clone(), pkg, unit);
+                            value.print(ctx.clone(), pkg, unit, writer);
                         }
                         _ => panic!(),
                     }
@@ -71,40 +77,40 @@ impl MIRValue {
             MIRValue::ArrayInit { ty, elements } => {
                 let _ctx = ctx.borrow();
                 let ty = _ctx.get_type(*ty).unwrap();
-                ty.print(ctx.clone());
+                ty.print(ctx.clone(), writer);
 
-                eprintln!(" [");
+                write!(writer, " [").unwrap();
                 for (i, value) in elements.iter().enumerate() {
                     if i != 0 {
-                        eprintln!(",");
+                        write!(writer, ",").unwrap();
                     }
                     match pkg.unit(unit).unwrap().node(*value).unwrap() {
                         MIRNode::Value { value } => {
-                            value.print(ctx.clone(), pkg, unit);
+                            value.print(ctx.clone(), pkg, unit, writer);
                         }
                         _ => panic!(),
                     }
                 }
-                eprintln!("]");
+                write!(writer, "]").unwrap();
             }
             MIRValue::TupleInit { ty, elements } => {
                 let _ctx = ctx.borrow();
                 let ty = _ctx.get_type(*ty).unwrap();
-                ty.print(ctx.clone());
+                ty.print(ctx.clone(), writer);
 
-                eprintln!(" (");
+                write!(writer, " (").unwrap();
                 for (i, value) in elements.iter().enumerate() {
                     if i != 0 {
-                        eprintln!(",");
+                        write!(writer, ",").unwrap();
                     }
                     match pkg.unit(unit).unwrap().node(*value).unwrap() {
                         MIRNode::Value { value } => {
-                            value.print(ctx.clone(), pkg, unit);
+                            value.print(ctx.clone(), pkg, unit, writer);
                         }
                         _ => panic!(),
                     }
                 }
-                eprintln!(")");
+                write!(writer, ")").unwrap();
             }
         }
     }

@@ -12,6 +12,7 @@ use parse::package::Package;
 use ty::Type;
 
 pub mod builder;
+pub mod graphviz;
 pub mod instruction;
 pub mod interner;
 pub mod ty;

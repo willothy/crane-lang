@@ -1,4 +1,4 @@
-use std::{cell::RefCell, rc::Rc};
+use std::{cell::RefCell, fmt::Write, rc::Rc};
 
 use crane_lex::Primitive;
 
@@ -27,52 +27,70 @@ pub enum Type {
 }
 
 impl Type {
-    pub fn print(&self, ctx: Rc<RefCell<Context>>) {
+    pub fn print(&self, ctx: Rc<RefCell<Context>>, writer: &mut dyn Write) {
         match self {
-            Type::Unit => eprint!("()"),
-            Type::Primitive(p) => eprint!("{}", p),
+            Type::Unit => write!(writer, "()").unwrap(),
+            Type::Primitive(p) => write!(writer, "{}", p).unwrap(),
             Type::Function(FunctionType { params, ret }) => {
-                eprint!("fn(");
+                write!(writer, "fn(");
                 for (i, param) in params.iter().enumerate() {
                     if i != 0 {
-                        eprint!(", ");
+                        write!(writer, ", ");
                     }
-                    ctx.borrow().get_type(*param).unwrap().print(ctx.clone());
+                    ctx.borrow()
+                        .get_type(*param)
+                        .unwrap()
+                        .print(ctx.clone(), writer);
                 }
-                eprint!(")");
+                write!(writer, ")");
                 if let Some(ret) = ret {
-                    ctx.borrow().get_type(*ret).unwrap().print(ctx.clone());
+                    ctx.borrow()
+                        .get_type(*ret)
+                        .unwrap()
+                        .print(ctx.clone(), writer);
                 }
             }
             Type::Struct(StructType { fields }) => {
-                eprint!("struct {{ ");
+                write!(writer, "struct {{ ");
                 for (i, (name, ty)) in fields.iter().enumerate() {
                     if i != 0 {
-                        eprint!(", ");
+                        write!(writer, ", ");
                     }
-                    eprint!("{}: ", name);
-                    ctx.borrow().get_type(*ty).unwrap().print(ctx.clone());
+                    write!(writer, "{}: ", name);
+                    ctx.borrow()
+                        .get_type(*ty)
+                        .unwrap()
+                        .print(ctx.clone(), writer);
                 }
-                eprint!(" }}");
+                write!(writer, " }}");
             }
             Type::Pointer(inner) => {
-                eprint!("*");
-                ctx.borrow().get_type(*inner).unwrap().print(ctx.clone());
+                write!(writer, "*");
+                ctx.borrow()
+                    .get_type(*inner)
+                    .unwrap()
+                    .print(ctx.clone(), writer);
             }
             Type::Array(ty, len) => {
-                eprint!("[");
-                ctx.borrow().get_type(*ty).unwrap().print(ctx.clone());
-                eprint!("; {}]", len);
+                write!(writer, "[");
+                ctx.borrow()
+                    .get_type(*ty)
+                    .unwrap()
+                    .print(ctx.clone(), writer);
+                write!(writer, "; {}]", len);
             }
             Type::Tuple(types) => {
-                eprint!("(");
+                write!(writer, "(");
                 for (i, ty) in types.iter().enumerate() {
                     if i != 0 {
-                        eprint!(", ");
+                        write!(writer, ", ");
                     }
-                    ctx.borrow().get_type(*ty).unwrap().print(ctx.clone());
+                    ctx.borrow()
+                        .get_type(*ty)
+                        .unwrap()
+                        .print(ctx.clone(), writer);
                 }
-                eprint!(")");
+                write!(writer, ")");
             }
         }
     }
