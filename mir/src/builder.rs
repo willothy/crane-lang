@@ -50,7 +50,7 @@ impl Inspect for FnGraphVizPass {
         let mut nodes = vec![];
         let mut edges = vec![];
         for (i, (block_name, block_id)) in body.iter().enumerate() {
-            let node = format!("N{i}[label=\"{}\"];", block_name);
+            let node = format!("N{i}[label=\"{}\", shape=\"box\"];", block_name);
             nodes.push(node);
             match unit.blocks.get(*block_id).unwrap().termination {
                 Some(term) => match unit.node(term).unwrap() {
@@ -811,6 +811,13 @@ pub mod tests {
         };
         builder.package.inspect(&mut dot, (unit, func));
         println!("{}", dot.result);
+        if std::env::var("DOT_OUTPUT").is_ok() {
+            std::fs::write(
+                env!("CARGO_MANIFEST_DIR").to_owned() + "/test.dot",
+                dot.result,
+            )
+            .unwrap();
+        }
 
         if std::env::var("FORCE_FAIL").is_ok() {
             assert!(false)
