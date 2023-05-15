@@ -8,7 +8,7 @@ use slotmap::{new_key_type, SlotMap};
 #[allow(unused)]
 use crane_lex as lex;
 use crane_parse as parse;
-use parse::package::Package;
+use parse::{package::Package, ty::Signature};
 use ty::Type;
 
 pub mod builder;
@@ -125,6 +125,38 @@ impl Context {
     pub fn new() -> Self {
         Self {
             types: Interner::new(),
+        }
+    }
+
+    pub fn resolve_signature(&mut self, sig: &Signature) -> TypeId {
+        match sig {
+            Signature::Function { params, ret_ty } => {
+                let params = params
+                    .into_iter()
+                    .map(|sig| self.resolve_signature(sig))
+                    .collect();
+                let ret = ret_ty
+                    .as_ref()
+                    .map(|sig| self.resolve_signature(sig.as_ref()));
+                self.intern_type(Type::Function(crate::ty::FunctionType { params, ret }))
+            }
+            Signature::Primitive(p) => self.intern_type(Type::Primitive(p.clone())),
+            Signature::Pointer(inner) => {
+                let ty = self.resolve_signature(inner.as_ref());
+                self.intern_type(Type::Pointer(ty))
+            }
+            Signature::Array(ty, len) => {
+                let ty = self.resolve_signature(ty.as_ref());
+                self.intern_type(Type::Array(ty, *len))
+            }
+            Signature::Tuple(types) => {
+                let types = types
+                    .into_iter()
+                    .map(|sig| self.resolve_signature(sig))
+                    .collect();
+                self.intern_type(Type::Tuple(types))
+            }
+            Signature::Name(_) => todo!(),
         }
     }
 

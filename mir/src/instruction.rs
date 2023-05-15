@@ -35,6 +35,16 @@ pub enum MIRValue {
 }
 
 impl MIRValue {
+    pub fn ty(&self) -> TypeId {
+        match self {
+            MIRValue::Result { ty, .. } => *ty,
+            MIRValue::Literal { ty, .. } => *ty,
+            MIRValue::StructInit { ty, .. } => *ty,
+            MIRValue::ArrayInit { ty, .. } => *ty,
+            MIRValue::TupleInit { ty, .. } => *ty,
+        }
+    }
+
     pub fn print(
         &self,
         ctx: Rc<RefCell<Context>>,

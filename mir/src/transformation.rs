@@ -24,39 +24,6 @@ impl ASTTransformationPass {
         }
     }
 
-    pub fn resolve_signature(&mut self, sig: &Signature) -> TypeId {
-        match sig {
-            Signature::Function { params, ret_ty } => {
-                let params = params
-                    .into_iter()
-                    .map(|sig| self.resolve_signature(sig))
-                    .collect();
-                let ret = ret_ty
-                    .as_ref()
-                    .map(|sig| self.resolve_signature(sig.as_ref()));
-                self.context
-                    .intern_type(Type::Function(crate::ty::FunctionType { params, ret }))
-            }
-            Signature::Primitive(p) => self.context.intern_type(Type::Primitive(p.clone())),
-            Signature::Pointer(inner) => {
-                let ty = self.resolve_signature(inner.as_ref());
-                self.context.intern_type(Type::Pointer(ty))
-            }
-            Signature::Array(ty, len) => {
-                let ty = self.resolve_signature(ty.as_ref());
-                self.context.intern_type(Type::Array(ty, *len))
-            }
-            Signature::Tuple(types) => {
-                let types = types
-                    .into_iter()
-                    .map(|sig| self.resolve_signature(sig))
-                    .collect();
-                self.context.intern_type(Type::Tuple(types))
-            }
-            Signature::Name(_) => todo!(),
-        }
-    }
-
     pub fn build_function(
         &mut self,
         package: &ASTPackage,
@@ -72,12 +39,12 @@ impl ASTTransformationPass {
         let params = params
             .into_iter()
             .map(|(_name, sig)| {
-                let ty = self.resolve_signature(&sig);
+                let ty = self.context.resolve_signature(&sig);
                 ty
             })
             .collect();
 
-        let ret = ret_ty.map(|r| self.resolve_signature(&r));
+        let ret = ret_ty.map(|r| self.context.resolve_signature(&r));
         self.builder.set_insert_unit(unit);
         let func = self.builder.get_or_insert_function(
             name,
@@ -127,7 +94,7 @@ impl ASTTransformationPass {
                     crane_lex::Literal::Bool(b) => self.builder.build_bool(*b),
                 },
                 crane_parse::expr::Expr::Let { lhs, ty, value } => {
-                    let inner = self.resolve_signature(ty.as_ref().unwrap());
+                    let inner = self.context.resolve_signature(ty.as_ref().unwrap());
                     let ty = self.context.intern_type(Type::Pointer(inner));
                     let lhs = ast_unit.node(*lhs).unwrap();
                     match lhs {
@@ -206,6 +173,9 @@ impl ASTTransformationPass {
                     }
                 }
                 crane_parse::expr::Expr::Assignment { lhs, op, rhs } => {
+                    // Get the pointer to the lhs
+                    // Get the value of the rhs
+                    // Store the value in the pointer
                     todo!()
                 }
                 crane_parse::expr::Expr::Break { value } => todo!(),
@@ -221,13 +191,56 @@ impl ASTTransformationPass {
                 crane_parse::expr::Expr::While { cond, body } => todo!(),
                 crane_parse::expr::Expr::Loop { body } => todo!(),
                 crane_parse::expr::Expr::ScopeResolution { path } => todo!(),
-                crane_parse::expr::Expr::List { exprs } => todo!(),
+                crane_parse::expr::Expr::List { exprs } => {
+                    let mut values = Vec::new();
+                    for expr in exprs {
+                        let value = self.build_expr(package, ast_unit, unit, scope.clone(), *expr);
+                        values.push(value);
+                    }
+                    let ty = self.context.intern_type(Type::Array(
+                        match self
+                            .builder
+                            .package
+                            .unit(unit)
+                            .unwrap()
+                            .node(
+                                *values
+                                    .first()
+                                    .expect("Need to find a better way to find array types"),
+                            )
+                            .unwrap()
+                        {
+                            crate::instruction::MIRNode::Value { value } => value.ty(),
+                            _ => panic!(),
+                        },
+                        values.len(),
+                    ));
+                    self.builder.build_array(ty, values)
+                }
                 crane_parse::expr::Expr::Closure {
                     params,
                     ret_ty,
                     body,
                 } => todo!(),
-                crane_parse::expr::Expr::Tuple { exprs } => todo!(),
+                crane_parse::expr::Expr::Tuple { exprs } => {
+                    let mut values = Vec::new();
+                    for expr in exprs {
+                        let value = self.build_expr(package, ast_unit, unit, scope.clone(), *expr);
+                        values.push(value);
+                    }
+                    let ty = self.context.intern_type(Type::Tuple(
+                        values
+                            .iter()
+                            .map(|v| {
+                                match self.builder.package.unit(unit).unwrap().node(*v).unwrap() {
+                                    crate::instruction::MIRNode::Value { value } => value.ty(),
+                                    _ => panic!(),
+                                }
+                            })
+                            .collect(),
+                    ));
+                    self.builder.build_tuple(ty, values)
+                }
             },
             _ => panic!(),
         }
