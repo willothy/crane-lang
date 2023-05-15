@@ -480,173 +480,173 @@ impl MIRBuilder {
         match node {
             MIRNode::Instruction { inst } => match inst {
                 MIRInstruction::Cast { value, ty } => {
-                    eprint!("cast ");
+                    write!(writer, "cast ");
                     self.print_value(*value, writer);
-                    eprint!(" to ");
+                    write!(writer, " to ");
                     self.ctx
                         .borrow()
                         .get_type(*ty)
                         .unwrap()
                         .print(self.ctx.clone(), writer);
-                    eprintln!()
+                    writeln!(writer).unwrap();
                 }
                 MIRInstruction::Add { lhs, rhs } => {
-                    eprint!("add ");
+                    write!(writer, "add ").unwrap();
                     self.print_value(*lhs, writer);
-                    eprint!(" ");
+                    write!(writer, " ").unwrap();
                     self.print_value(*rhs, writer);
-                    eprintln!()
+                    writeln!(writer).unwrap();
                 }
                 MIRInstruction::Sub { lhs, rhs } => {
-                    eprint!("sub ");
+                    write!(writer, "sub ").unwrap();
                     self.print_value(*lhs, writer);
-                    eprint!(" ");
+                    write!(writer, " ").unwrap();
                     self.print_value(*rhs, writer);
-                    eprintln!()
+                    writeln!(writer).unwrap();
                 }
                 MIRInstruction::Mul { lhs, rhs } => {
-                    eprint!("mul ");
+                    write!(writer, "mul ").unwrap();
                     self.print_value(*lhs, writer);
-                    eprint!(" ");
+                    write!(writer, " ").unwrap();
                     self.print_value(*rhs, writer);
-                    eprintln!()
+                    writeln!(writer).unwrap();
                 }
                 MIRInstruction::Div { lhs, rhs } => {
-                    eprint!("div ");
+                    write!(writer, "div ").unwrap();
                     self.print_value(*lhs, writer);
-                    eprint!(" ");
+                    write!(writer, " ").unwrap();
                     self.print_value(*rhs, writer);
-                    eprintln!()
+                    writeln!(writer).unwrap();
                 }
                 MIRInstruction::Rem { lhs, rhs } => {
-                    eprint!("mod ");
+                    write!(writer, "rem ").unwrap();
                     self.print_value(*lhs, writer);
-                    eprint!(" ");
+                    write!(writer, " ").unwrap();
                     self.print_value(*rhs, writer);
-                    eprintln!()
+                    writeln!(writer).unwrap();
                 }
                 MIRInstruction::Neg { value } => {
-                    eprint!("neg ");
+                    write!(writer, "neg ").unwrap();
                     self.print_node(*value, writer);
-                    eprintln!()
+                    writeln!(writer).unwrap();
                 }
                 MIRInstruction::Not { value } => {
-                    eprint!("not ");
+                    write!(writer, "not ").unwrap();
                     self.print_node(*value, writer);
-                    eprintln!()
+                    writeln!(writer).unwrap();
                 }
                 MIRInstruction::BitAnd { lhs, rhs } => {
-                    eprint!("band ");
+                    write!(writer, "and ").unwrap();
                     self.print_value(*lhs, writer);
-                    eprint!(" ");
+                    write!(writer, " ").unwrap();
                     self.print_value(*rhs, writer);
-                    eprintln!()
+                    writeln!(writer).unwrap();
                 }
                 MIRInstruction::BitOr { lhs, rhs } => {
-                    eprint!("bor ");
+                    write!(writer, "bor ").unwrap();
                     self.print_value(*lhs, writer);
-                    eprint!(" ");
+                    write!(writer, " ").unwrap();
                     self.print_value(*rhs, writer);
-                    eprintln!()
+                    writeln!(writer).unwrap();
                 }
                 MIRInstruction::BitXor { lhs, rhs } => {
-                    eprint!("xor ");
+                    write!(writer, "xor ").unwrap();
                     self.print_value(*lhs, writer);
-                    eprint!(" ");
+                    write!(writer, " ").unwrap();
                     self.print_value(*rhs, writer);
-                    eprintln!()
+                    writeln!(writer).unwrap();
                 }
                 MIRInstruction::BitNot { value } => {
-                    eprint!("bnot ");
+                    write!(writer, "bnot ").unwrap();
                     self.print_node(*value, writer);
-                    eprintln!()
+                    writeln!(writer).unwrap();
                 }
                 MIRInstruction::Shl { lhs, rhs } => {
-                    eprint!("shl ");
+                    write!(writer, "shl ").unwrap();
                     self.print_value(*lhs, writer);
-                    eprint!(" ");
+                    write!(writer, " ").unwrap();
                     self.print_value(*rhs, writer);
-                    eprintln!()
+                    writeln!(writer).unwrap();
                 }
                 MIRInstruction::Shr { lhs, rhs } => {
-                    eprint!("shr ");
+                    write!(writer, "shr ").unwrap();
                     self.print_value(*lhs, writer);
-                    eprint!(" ");
+                    write!(writer, " ").unwrap();
                     self.print_value(*rhs, writer);
-                    eprintln!()
+                    writeln!(writer).unwrap();
                 }
                 MIRInstruction::Eq { lhs, rhs } => {
-                    eprint!("eq ");
+                    write!(writer, "eq ").unwrap();
                     self.print_value(*lhs, writer);
-                    eprint!(" ");
+                    write!(writer, " ").unwrap();
                     self.print_value(*rhs, writer);
-                    eprintln!()
+                    writeln!(writer).unwrap();
                 }
                 MIRInstruction::Neq { lhs, rhs } => {
-                    eprint!("neq ");
+                    write!(writer, "neq ").unwrap();
                     self.print_value(*lhs, writer);
-                    eprint!(" ");
+                    write!(writer, " ").unwrap();
                     self.print_value(*rhs, writer);
-                    eprintln!()
+                    writeln!(writer).unwrap();
                 }
                 MIRInstruction::Lt { lhs, rhs } => {
-                    eprint!("lt ");
+                    write!(writer, "lt ").unwrap();
                     self.print_value(*lhs, writer);
-                    eprint!(" ");
+                    write!(writer, " ").unwrap();
                     self.print_value(*rhs, writer);
-                    eprintln!()
+                    writeln!(writer).unwrap();
                 }
                 MIRInstruction::Leq { lhs, rhs } => {
-                    eprint!("leq ");
+                    write!(writer, "leq ").unwrap();
                     self.print_value(*lhs, writer);
-                    eprint!(" ");
+                    write!(writer, " ").unwrap();
                     self.print_value(*rhs, writer);
-                    eprintln!()
+                    writeln!(writer).unwrap();
                 }
                 MIRInstruction::Gt { lhs, rhs } => {
-                    eprint!("gt ");
+                    write!(writer, "gt ").unwrap();
                     self.print_value(*lhs, writer);
-                    eprint!(" ");
+                    write!(writer, " ").unwrap();
                     self.print_value(*rhs, writer);
-                    eprintln!()
+                    writeln!(writer).unwrap();
                 }
                 MIRInstruction::Geq { lhs, rhs } => {
-                    eprint!("geq ");
+                    write!(writer, "geq ").unwrap();
                     self.print_value(*lhs, writer);
-                    eprint!(" ");
+                    write!(writer, " ").unwrap();
                     self.print_value(*rhs, writer);
-                    eprintln!()
+                    writeln!(writer).unwrap();
                 }
                 MIRInstruction::Alloc { ty } => {
-                    eprint!("alloc ");
+                    write!(writer, "alloc ").unwrap();
                     self.ctx
                         .borrow()
                         .get_type(*ty)
                         .unwrap()
                         .print(self.ctx.clone(), writer);
-                    eprintln!()
+                    writeln!(writer).unwrap();
                 }
                 MIRInstruction::Load { ptr } => {
-                    eprint!("load ");
+                    write!(writer, "load ").unwrap();
                     self.print_value(*ptr, writer);
-                    eprintln!()
+                    writeln!(writer).unwrap();
                 }
                 MIRInstruction::Store { ptr, value } => {
-                    eprint!("store ");
+                    write!(writer, "store ").unwrap();
                     self.print_value(*ptr, writer);
-                    eprint!(" ");
+                    write!(writer, " ").unwrap();
                     self.print_value(*value, writer);
-                    eprintln!()
+                    writeln!(writer).unwrap();
                 }
                 MIRInstruction::Call { callee, args } => {
-                    eprint!("call ");
+                    write!(writer, "call ").unwrap();
                     self.print_value(*callee, writer);
-                    eprint!(" ");
+                    write!(writer, " ").unwrap();
                     for arg in args {
                         self.print_value(*arg, writer);
-                        eprint!(" ");
+                        write!(writer, " ").unwrap();
                     }
-                    eprintln!()
+                    writeln!(writer).unwrap();
                 }
                 #[allow(unused_variables)]
                 MIRInstruction::FieldAccess { value, field } => todo!(),
@@ -657,16 +657,17 @@ impl MIRBuilder {
             },
             MIRNode::Termination { inst } => match inst {
                 MIRTermination::Return { value } => {
-                    eprint!("  return ");
+                    write!(writer, "  return ").unwrap();
                     if let Some(value) = value {
                         self.print_value(*value, writer);
                     }
-                    eprintln!()
+                    writeln!(writer).unwrap();
                 }
                 MIRTermination::Branch { cond, then, r#else } => {
-                    eprint!("  branch ");
+                    write!(writer, "  branch ").unwrap();
                     self.print_value(*cond, writer);
-                    eprint!(
+                    write!(
+                        writer,
                         " {} ",
                         self.package
                             .unit(self.insert_point.unit)
@@ -675,8 +676,10 @@ impl MIRBuilder {
                             .get(*then)
                             .unwrap()
                             .name
-                    );
-                    eprintln!(
+                    )
+                    .unwrap();
+                    writeln!(
+                        writer,
                         "{}",
                         self.package
                             .unit(self.insert_point.unit)
@@ -685,11 +688,12 @@ impl MIRBuilder {
                             .get(*r#else)
                             .unwrap()
                             .name
-                    );
+                    )
+                    .unwrap();
                 }
-                MIRTermination::Jump { target } => eprintln!("  jump {:?}", target),
+                MIRTermination::Jump { target } => writeln!(writer, "  jump {:?}", target).unwrap(),
                 MIRTermination::JumpIf { cond, then } => {
-                    eprintln!("  jump_if: {:?} {:?}", cond, then)
+                    writeln!(writer, "  jump_if: {:?} {:?}", cond, then).unwrap();
                 }
             },
             #[allow(unused_variables)]
@@ -703,7 +707,7 @@ impl MIRBuilder {
         let block = unit.blocks.get(block).unwrap();
 
         for node in &block.body {
-            eprint!("  %{:?} = ", node.data());
+            write!(writer, "  %{:?} = ", node.data()).unwrap();
             self.print_node(*node, writer);
         }
         if let Some(termination) = &block.termination {
@@ -717,15 +721,15 @@ impl MIRBuilder {
         let func = unit.items.get(func).unwrap();
 
         if let Item::Function { name, body, ty } = func {
-            eprint!("fn {}", name);
+            write!(writer, "fn {}", name).unwrap();
             let _ctx = self.ctx.borrow();
             let ty = _ctx.types.get(*ty).unwrap();
             match ty {
                 Type::Function(f) => {
-                    eprint!("(");
+                    write!(writer, "(").unwrap();
                     for (i, arg) in f.params.iter().enumerate() {
                         if i != 0 {
-                            eprint!(", ");
+                            write!(writer, ", ").unwrap();
                         }
                         self.ctx
                             .borrow()
@@ -733,9 +737,9 @@ impl MIRBuilder {
                             .unwrap()
                             .print(self.ctx.clone(), writer);
                     }
-                    eprint!(")");
+                    write!(writer, ")").unwrap();
                     if let Some(ret) = f.ret {
-                        eprint!(" -> ");
+                        write!(writer, " -> ").unwrap();
                         self.ctx
                             .borrow()
                             .get_type(ret)
@@ -745,12 +749,12 @@ impl MIRBuilder {
                 }
                 _ => panic!(),
             }
-            eprintln!(" {{");
+            writeln!(writer, " {{");
             for (name, block) in body {
-                eprintln!("{}:", name);
+                writeln!(writer, "{}:", name);
                 self.print_block(*block, writer);
             }
-            eprintln!("}}");
+            writeln!(writer, "}}");
         }
     }
 
