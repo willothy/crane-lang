@@ -42,7 +42,7 @@ impl<T> Default for Slot<T> {
     fn default() -> Self {
         Self {
             inner: None,
-            version: AtomicU32::new(1), //: unsafe { NonZeroU32::new_unchecked(1) },
+            version: AtomicU32::new(1),
         }
     }
 }
@@ -81,7 +81,7 @@ impl<T> Arena<T> {
             inner: Vec::with_capacity(capacity),
             free_queue: SegQueue::new(),
         };
-        // new.resize(capacity);
+        new.resize(capacity);
         new
     }
 
@@ -139,14 +139,29 @@ impl<T> Arena<T> {
 mod tests {
     use super::*;
 
-    // extern crate test;
-    //
-    // use test::black_box;
-
     use std::{
         sync::atomic::{AtomicBool, Ordering},
         thread,
     };
+
+    #[test]
+    fn test_get_before_remove() {
+        let arena: Arena<u32> = Arena::new();
+        let value = 42;
+        let key = arena.insert(value);
+
+        let retrieved_value = arena.get(key);
+        assert!(retrieved_value.is_some());
+        assert_eq!(*retrieved_value.clone().unwrap().read().unwrap(), value);
+
+        let removed_value = arena.remove(key);
+        assert!(removed_value.is_some());
+
+        assert_eq!(*retrieved_value.unwrap().read().unwrap(), value);
+
+        let retrieved_value = arena.get(key);
+        assert!(retrieved_value.is_none());
+    }
 
     #[test]
     fn test_multithreaded_access() {
