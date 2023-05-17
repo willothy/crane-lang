@@ -51,7 +51,6 @@ impl<T> Default for Slot<T> {
 pub struct Arena<T> {
     inner: Vec<RwLock<Slot<T>>>,
     free_queue: SegQueue<u32>,
-    num_occupied: AtomicU32,
 }
 
 // https://codereview.stackexchange.com/a/141215
@@ -72,7 +71,6 @@ impl<T> Arena<T> {
         let new = Self {
             inner: Vec::with_capacity(128),
             free_queue: SegQueue::new(),
-            num_occupied: AtomicU32::new(0),
         };
         new.resize(128);
         new
@@ -82,7 +80,6 @@ impl<T> Arena<T> {
         let new = Self {
             inner: Vec::with_capacity(capacity),
             free_queue: SegQueue::new(),
-            num_occupied: AtomicU32::new(0),
         };
         // new.resize(capacity);
         new
@@ -110,7 +107,6 @@ impl<T> Arena<T> {
         let old_version = slot.version.fetch_add(1, Ordering::SeqCst);
         slot.inner.replace(Arc::new(RwLock::new(value)));
 
-        self.num_occupied.fetch_add(1, Ordering::SeqCst);
         KeyData {
             index,
             version: unsafe { NonZeroU32::new_unchecked(old_version + 1) },
@@ -132,7 +128,6 @@ impl<T> Arena<T> {
             let old = slot.inner.take();
             slot.version.fetch_add(1, Ordering::SeqCst);
             self.free_queue.push(key.index);
-            self.num_occupied.fetch_sub(1, Ordering::SeqCst);
             old
         } else {
             None
