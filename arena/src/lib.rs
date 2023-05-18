@@ -100,7 +100,7 @@ impl<T> Arena<T> {
         let index = loop {
             match self.free_queue.pop() {
                 Some(index) => break index,
-                None => self.resize(next_power_of_two(self.inner.len() as u32 + 1) as usize),
+                None => self.resize(next_power_of_two(self.inner.len() as u32 * 2) as usize),
             }
         };
         let mut slot = self.inner[index as usize].write().unwrap();
@@ -114,7 +114,7 @@ impl<T> Arena<T> {
     }
 
     pub fn get(&self, key: KeyData) -> Option<Arc<RwLock<T>>> {
-        let slot = self.inner.get(key.index as usize).unwrap().write().unwrap();
+        let slot = self.inner.get(key.index as usize).unwrap().read().unwrap();
         if slot.version.load(Ordering::SeqCst) == key.version.get() {
             slot.inner.clone()
         } else {
